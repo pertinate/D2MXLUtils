@@ -2,8 +2,8 @@
   import { invoke } from '@tauri-apps/api/core';
   import { listen } from '@tauri-apps/api/event';
   import { onMount } from 'svelte';
-  import { AlwaysShowItemsIndicator, LootHistoryPanel, NotificationStack, OverlayEditGrid } from '../components';
-  import { settingsStore } from '../stores';
+  import { AlwaysShowItemsIndicator, DpsMeter, LootHistoryPanel, NotificationStack, OverlayEditGrid } from '../components';
+  import { dpsMeterStore, settingsStore } from '../stores';
   import { playSound } from '../lib/sound-player';
 
   type UniqueKind = 'tu' | 'su' | 'ssu' | 'sssu';
@@ -47,6 +47,8 @@
   let historyVisible = $state(false);
   let pendingX = $state(0);
   let pendingY = $state(0);
+
+  let dpsMeterEnabled = $derived(settingsStore.settings.dpsMeter?.enabled ?? false);
   
   // Animation duration placeholder (currently 0 for instant, can be changed later)
   const EXIT_ANIMATION_DURATION = 0;
@@ -99,6 +101,8 @@
     const unlisteners: Array<() => void> = [];
     let syncTimer: number | null = null;
 
+    dpsMeterStore.initialize();
+
     // Listen for item drops
     listen<ItemDrop>('item-drop', (event) => {
       addItem(event.payload, notificationDuration);
@@ -144,6 +148,18 @@
       }
     }).then(u => unlisteners.push(u));
 
+    listen('toggle-dps-meter', () => {
+      settingsStore.setDpsMeterEnabled(!(settingsStore.settings.dpsMeter?.enabled ?? false));
+    }).then(u => unlisteners.push(u));
+
+    listen('reset-dps-session', async () => {
+      try {
+        await invoke('reset_dps_session');
+      } catch (err) {
+        console.error('[Overlay] reset_dps_session failed:', err);
+      }
+    }).then(u => unlisteners.push(u));
+
     // Periodically sync overlay position with Diablo II window
     syncTimer = window.setInterval(() => {
       invoke('sync_overlay_with_game').catch(() => {
@@ -186,6 +202,9 @@
       historyVisible = false;
       invoke('set_overlay_interactive', { active: editActive }).catch(() => {});
     }} />
+  {/if}
+  {#if dpsMeterEnabled}
+    <DpsMeter editActive={editActive} />
   {/if}
 </main>
 

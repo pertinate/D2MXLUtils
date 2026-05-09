@@ -14,4 +14,5 @@ export { default as NotificationStack } from './NotificationStack.svelte';
 export { default as OverlayEditGrid } from './OverlayEditGrid.svelte';
 export { default as AlwaysShowItemsIndicator } from './AlwaysShowItemsIndicator.svelte';
 export { default as LootHistoryPanel } from './LootHistoryPanel.svelte';
+export { default as DpsMeter } from './DpsMeter.svelte';
 

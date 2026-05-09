@@ -31,6 +31,18 @@ export interface SoundSlot {
   source: SoundSource;
 }
 
+export interface DpsMeterPosition {
+  x: number;
+  y: number;
+}
+
+export interface DpsMeterSettings {
+  enabled: boolean;
+  position: DpsMeterPosition | null;
+  hotkeyToggle: HotkeyConfig | null;
+  hotkeyReset: HotkeyConfig | null;
+}
+
 /** Application settings interface */
 export interface AppSettings {
   /** UI theme: "dark" or "light" */
@@ -70,6 +82,8 @@ export interface AppSettings {
   sounds: SoundSlot[];
   /** 1-based slot index played when a goblin appears nearby. */
   goblinAlertSlot: number | null;
+  /** DPS meter overlay panel. */
+  dpsMeter: DpsMeterSettings;
 }
 
 /** Window state interface */
@@ -135,6 +149,12 @@ const DEFAULT_SETTINGS: AppSettings = {
   autoAlwaysShowItems: true,
   sounds: defaultSounds(),
   goblinAlertSlot: null,
+  dpsMeter: {
+    enabled: false,
+    position: null,
+    hotkeyToggle: null,
+    hotkeyReset: null,
+  },
 };
 
 /** Settings store singleton */
@@ -384,6 +404,37 @@ class SettingsStore {
   /** Set notification anchor position (percentages 0-100) */
   setNotificationPosition(x: number, y: number): void {
     this.update({ notificationX: x, notificationY: y });
+  }
+
+  setDpsMeterEnabled(enabled: boolean): void {
+    this.set('dpsMeter', { ...this._settings.dpsMeter, enabled });
+  }
+
+  setDpsMeterPosition(x: number, y: number): void {
+    this.set('dpsMeter', {
+      ...this._settings.dpsMeter,
+      position: { x, y },
+    });
+  }
+
+  async setDpsMeterToggleHotkey(hotkey: HotkeyConfig): Promise<void> {
+    const stored = hotkey.keyCode === 0 && hotkey.modifiers === 0 ? null : hotkey;
+    this.set('dpsMeter', { ...this._settings.dpsMeter, hotkeyToggle: stored });
+    try {
+      await invoke('update_dps_meter_toggle_hotkey', { hotkey });
+    } catch (error) {
+      console.error('[Settings] Failed to update DPS-meter toggle hotkey:', error);
+    }
+  }
+
+  async setDpsMeterResetHotkey(hotkey: HotkeyConfig): Promise<void> {
+    const stored = hotkey.keyCode === 0 && hotkey.modifiers === 0 ? null : hotkey;
+    this.set('dpsMeter', { ...this._settings.dpsMeter, hotkeyReset: stored });
+    try {
+      await invoke('update_dps_meter_reset_hotkey', { hotkey });
+    } catch (error) {
+      console.error('[Settings] Failed to update DPS-meter reset hotkey:', error);
+    }
   }
 
   /** Enable/disable verbose per-item filter logging. Persists and flips the

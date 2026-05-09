@@ -12,6 +12,27 @@ use crate::logger::{error as log_error, info as log_info};
 
 const SETTINGS_FILE: &str = "settings.json";
 
+/// DPS-meter overlay panel settings. Persists across sessions.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct DpsMeterSettings {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub position: Option<DpsMeterPosition>,
+    #[serde(default)]
+    pub hotkey_toggle: Option<HotkeyConfig>,
+    #[serde(default)]
+    pub hotkey_reset: Option<HotkeyConfig>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DpsMeterPosition {
+    pub x: i32,
+    pub y: i32,
+}
+
 /// One configurable drop-sound slot. Index in `AppSettings.sounds` + 1
 /// equals the DSL keyword index (e.g. element 0 -> `sound1`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -121,6 +142,10 @@ pub struct AppSettings {
     /// scanner's view. `None` disables the feature.
     #[serde(default)]
     pub goblin_alert_slot: Option<u32>,
+
+    /// DPS meter overlay panel.
+    #[serde(default)]
+    pub dps_meter: DpsMeterSettings,
 }
 
 /// Window state for persistence
@@ -216,6 +241,7 @@ impl Default for AppSettings {
             auto_always_show_items: default_auto_always_show_items(),
             sounds: default_sounds(),
             goblin_alert_slot: None,
+            dps_meter: DpsMeterSettings::default(),
         }
     }
 }

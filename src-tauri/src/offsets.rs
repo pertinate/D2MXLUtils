@@ -20,6 +20,10 @@ pub mod d2client {
     /// `docs/map-marker-reverse-engineering.md`.
     pub const AUTOMAP_LAYER: usize = 0x11C1C4;
 
+    /// Current game difficulty as `u32`: `0=Normal, 1=Nightmare, 2=Hell`.
+    /// Used by the DPS-meter trampoline to index `MonStats.wMaxHP[diff]`.
+    pub const DIFFICULTY: usize = 0x11C390;
+
     /// Injection function offsets (relative to INJECT_BASE)
     pub mod inject {
         pub const PRINT: usize = 0x01;
@@ -64,6 +68,15 @@ pub mod d2common {
 
     /// D2Common_GetUnitStat injection offset (relative to D2Client inject base)
     pub const INJECT_GET_UNIT_STAT: usize = 0x54;
+
+    /// `STATLIST_SetUnitStat` (D2Common ordinal 10887). Universal sink
+    /// for stat writes in both SP and MP — DPS-meter inline-hook target.
+    /// `__stdcall(pUnit, statId, value, layer)`, `ret 0010`.
+    pub const STATLIST_SET_UNIT_STAT: usize = 0x3A740;
+
+    /// `STATLIST_SetStat` (D2Common ordinal 10261). Leaf called by
+    /// `STATLIST_SetUnitStat`. Kept as a reference; not currently hooked.
+    pub const STATLIST_SET_STAT: usize = 0x3A280;
 }
 
 /// Field offsets inside `D2DataTablesStrc` (the struct pointed to by
@@ -72,6 +85,13 @@ pub mod d2common {
 /// set-items count=330 with localized names resolving correctly via
 /// `wTblIndex` / `wStringId`. See `docs/item-tables-memory.md`.
 pub mod data_tables {
+    /// `D2MonStatsTxt* pMonStatsTxt` — MonStats.txt records. See
+    /// `docs/dps-meter-reverse-engineering.md`. **Layout quirk**: count
+    /// is at `+8`, not `+4`, because `pMonStats2Txt` (cosmetic paired
+    /// table) sits at `+4` and shares the count.
+    pub const MONSTATS_TXT_PTR: usize = 0xA78;
+    pub const MONSTATS_TXT_COUNT: usize = 0xA80;
+
     /// `D2ItemTypesTxt* pItemTypesTxt` — ItemTypes.txt records (D2MOO field
     /// at this offset; verified live against MXL with count=346).
     pub const ITEM_TYPES_TXT_PTR: usize = 0xBF8;
@@ -119,6 +139,10 @@ pub mod unit {
     pub const UNIT_TYPE: usize = 0x00; // dword
     pub const CLASS: usize = 0x04; // dword
     pub const UNIT_ID: usize = 0x0C; // dword
+    /// `dwMode` — current unit-mode token. For monsters, see `mon_mode::*`.
+    /// DPS trampoline drops stat-6 writes on already-dead monsters
+    /// (corpse visibility refresh, area reload).
+    pub const MODE: usize = 0x10; // dword
     pub const UNIT_DATA: usize = 0x14; // dword (pointer to type-specific data)
     pub const PATH: usize = 0x2C; // dword (pointer to Path/Path2/static path)
     pub const INVENTORY: usize = 0x60; // dword (pointer to inventory)
@@ -129,6 +153,14 @@ pub mod unit {
     pub const ROOM_NEXT: usize = 0xE8;
 }
 
+/// `D2C_MonsterModes` enum (from D2MOO `D2DataDefs.h`).
+#[allow(dead_code)]
+pub mod mon_mode {
+    pub const DEATH: u32 = 0;
+    pub const NEUTRAL: u32 = 1;
+    pub const DEAD: u32 = 12;
+}
+
 /// `Room1` field offsets used by the automap-marker BFS.
 pub mod room1 {
     /// `Room1** ppRoomsNear` — array of neighbouring Room1 pointers.
@@ -137,6 +169,17 @@ pub mod room1 {
     pub const DW_ROOMS_NEAR: usize = 0x24;
     /// Head of the mixed-type unit linked list. Walk it via `unit::ROOM_NEXT`.
     pub const UNIT_FIRST: usize = 0x74;
+}
+
+/// Chain `pRoom1 → +0x10 → +0x24 → +0x100 = dwLevelNo`. Unreliable in
+/// motion — Room1 changes between rendering rooms and the intermediate
+/// pointer leads to neighbour `Level` structs. DPS meter uses
+/// `*pAutomapLayer` instead. Kept for a future RE pass.
+#[allow(dead_code)]
+pub mod level_chain {
+    pub const ROOM1_TO_INTERMEDIATE: usize = 0x10;
+    pub const INTERMEDIATE_TO_LEVEL: usize = 0x24;
+    pub const LEVEL_TO_LEVEL_NO: usize = 0x100;
 }
 
 /// `AutomapLayer` field offsets (at `*pAutomapLayer`).
@@ -289,6 +332,47 @@ pub mod set_items_txt {
     pub const LEVEL: usize = 0x30; // word (wLvl)
     pub const LEVEL_REQ: usize = 0x32; // word (wLvlReq)
     pub const SET_ID: usize = 0x2C; // int16 — index into Sets.txt
+}
+
+/// `D2StatListEx` field offsets and `D2StatStrc` record layout. Reference
+/// for the DPS-meter trampoline (which embeds these as immediates).
+#[allow(dead_code)]
+pub mod stat_list {
+    pub const UNIT_TO_STATS_LIST: usize = 0x5C;
+    pub const SL_PSTAT: usize = 0x24;
+    pub const SL_STAT_COUNT: usize = 0x28;
+    pub const SL_STAT_CAPACITY: usize = 0x2A;
+    /// For monsters, `pStat` is allocated inline at this offset.
+    pub const SL_INLINE_PSTAT: usize = 0x80;
+
+    pub const STAT_RECORD_SIZE: usize = 8;
+    pub const STAT_LAYER: usize = 0x00;
+    pub const STAT_NSTAT: usize = 0x02;
+    pub const STAT_VALUE: usize = 0x04;
+
+    /// Stat ids from `ItemStatCost.txt`.
+    pub const STAT_HITPOINTS: u16 = 6;
+    pub const STAT_MAXHP: u16 = 7;
+}
+
+/// `D2MonStatsTxt` record offsets. Record size = `0x1A8`; indexing is
+/// `record_ptr = table_ptr + class_id * 0x1A8`. Reference for the
+/// DPS-meter trampoline (embeds these as immediates).
+#[allow(dead_code)]
+pub mod monstats_txt {
+    pub const RECORD_SIZE: usize = 0x1A8;
+    pub const W_ID: usize = 0x00;
+    /// `0` for wild monsters, `1` for summons. Trampoline filters on this.
+    pub const IS_SPAWN: usize = 0x4C;
+
+    pub const MIN_HP_NORMAL: usize = 0xAA;
+    pub const MIN_HP_NM: usize = 0xAC;
+    pub const MIN_HP_HELL: usize = 0xAE;
+
+    /// `wMaxHP[3]` indexed by difficulty (Normal/NM/Hell).
+    pub const MAX_HP_NORMAL: usize = 0xB0;
+    pub const MAX_HP_NM: usize = 0xB2;
+    pub const MAX_HP_HELL: usize = 0xB4;
 }
 
 /// Unit types enum values

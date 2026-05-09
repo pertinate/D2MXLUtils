@@ -6,8 +6,11 @@
   // Derived state from settings store
   let verboseFilterLogging = $derived(settingsStore.settings.verboseFilterLogging);
   let autoAlwaysShowItems = $derived(settingsStore.settings.autoAlwaysShowItems);
+  let dpsMeterEnabled = $derived(settingsStore.settings.dpsMeter?.enabled ?? false);
 
-  type HotkeyId = 'toggleWindow' | 'editOverlay' | 'revealHidden' | 'lootHistory';
+  const UNBOUND_HOTKEY: HotkeyConfig = { keyCode: 0, modifiers: 0, display: 'None' };
+
+  type HotkeyId = 'toggleWindow' | 'editOverlay' | 'revealHidden' | 'lootHistory' | 'dpsMeterToggle' | 'dpsMeterReset';
   interface HotkeyRow {
     id: HotkeyId;
     label: string;
@@ -41,6 +44,21 @@
     },
   ];
 
+  const DPS_HOTKEY_ROWS: readonly HotkeyRow[] = [
+    {
+      id: 'dpsMeterToggle',
+      label: 'Toggle DPS meter',
+      hint: 'Show/hide the DPS overlay panel',
+      setter: (h) => settingsStore.setDpsMeterToggleHotkey(h),
+    },
+    {
+      id: 'dpsMeterReset',
+      label: 'Reset DPS session',
+      hint: 'Clear rolling DPS, peak, total and kill counters',
+      setter: (h) => settingsStore.setDpsMeterResetHotkey(h),
+    },
+  ];
+
   // Map id -> live HotkeyConfig from the store. Values stay reactive because
   // the getter is invoked inside a $derived.
   const HOTKEY_GETTERS: Record<HotkeyId, () => HotkeyConfig> = {
@@ -48,12 +66,18 @@
     editOverlay:  () => settingsStore.settings.editOverlayHotkey,
     revealHidden: () => settingsStore.settings.revealHiddenHotkey,
     lootHistory:  () => settingsStore.settings.lootHistoryHotkey,
+    dpsMeterToggle: () => settingsStore.settings.dpsMeter?.hotkeyToggle ?? UNBOUND_HOTKEY,
+    dpsMeterReset:  () => settingsStore.settings.dpsMeter?.hotkeyReset ?? UNBOUND_HOTKEY,
   };
   let hotkeyValues = $derived(
     Object.fromEntries(
       (Object.keys(HOTKEY_GETTERS) as HotkeyId[]).map((id) => [id, HOTKEY_GETTERS[id]()]),
     ) as Record<HotkeyId, HotkeyConfig>,
   );
+
+  function handleDpsMeterEnabledChange(enabled: boolean) {
+    settingsStore.setDpsMeterEnabled(enabled);
+  }
 
   let updaterState = $derived(updaterStore.state);
   let checkDisabled = $derived(
@@ -95,15 +119,16 @@
   }
 
   function handleHotkeyChange(id: HotkeyId, hotkey: HotkeyConfig) {
+    const allRows = [...HOTKEY_ROWS, ...DPS_HOTKEY_ROWS];
     if (isBound(hotkey)) {
-      for (const row of HOTKEY_ROWS) {
+      for (const row of allRows) {
         if (row.id === id) continue;
         if (sameChord(hotkeyValues[row.id], hotkey)) {
           row.setter(UNBOUND);
         }
       }
     }
-    HOTKEY_ROWS.find((r) => r.id === id)!.setter(hotkey);
+    allRows.find((r) => r.id === id)!.setter(hotkey);
   }
 
   function handleCheckForUpdates() {
@@ -193,6 +218,31 @@
         <div class="setting-info">
           <span class="setting-label">{row.label}</span>
           <span class="setting-hint">{@html row.hint.replace(/`([^`]+)`/g, '<code>$1</code>')}</span>
+        </div>
+        <HotkeyInput
+          value={hotkeyValues[row.id]}
+          onchange={(h) => handleHotkeyChange(row.id, h)}
+        />
+      </div>
+    {/each}
+  </div>
+
+  <div class="settings-section">
+    <h2 class="section-title">DPS Meter</h2>
+
+    <div class="setting-row">
+      <div class="setting-info">
+        <span class="setting-label">Show overlay</span>
+        <span class="setting-hint">Live DPS / Kills/min / Peak / Total / Kills panel rendered on the in-game overlay. Captures damage in both single-player and multiplayer. DoT damage (poison/burn) is captured with one tick of delay.</span>
+      </div>
+      <Toggle checked={dpsMeterEnabled} onchange={handleDpsMeterEnabledChange} />
+    </div>
+
+    {#each DPS_HOTKEY_ROWS as row (row.id)}
+      <div class="setting-row">
+        <div class="setting-info">
+          <span class="setting-label">{row.label}</span>
+          <span class="setting-hint">{row.hint}</span>
         </div>
         <HotkeyInput
           value={hotkeyValues[row.id]}

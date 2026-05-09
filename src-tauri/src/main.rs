@@ -2,6 +2,8 @@
 
 mod breakpoints;
 mod d2types;
+mod dps_hook;
+mod dps_meter;
 mod hotkeys;
 mod injection;
 mod items_cache;
@@ -29,7 +31,10 @@ use std::time::Duration;
 
 use tauri::{AppHandle, Emitter, Manager, WindowEvent};
 
-use crate::hotkeys::{EditModeState, HotkeyState, LootHistoryHotkeyState, RevealHiddenState};
+use crate::hotkeys::{
+    DpsMeterResetHotkeyState, DpsMeterToggleHotkeyState, EditModeState, HotkeyState,
+    LootHistoryHotkeyState, RevealHiddenState,
+};
 use crate::logger::{error as log_error, info as log_info};
 use crate::loot_history::{LootEntry, LootHistory, PickupState};
 
@@ -91,6 +96,7 @@ struct AppState {
     breakpoints_polling: Arc<AtomicBool>,
     speedcalc_table: Arc<RwLock<Option<speedcalc_data::SpeedcalcTable>>>,
     weapon_base_catalog: Arc<RwLock<Option<weapon_families::WeaponBaseCatalog>>>,
+    dps_reset_pending: Arc<AtomicBool>,
 }
 
 const GAME_STATUS_UNKNOWN: u8 = 0;
@@ -159,6 +165,7 @@ fn start_scanner_internal(
     loot_history: Arc<RwLock<LootHistory>>,
     breakpoints_polling: Arc<AtomicBool>,
     weapon_base_catalog: Arc<RwLock<Option<weapon_families::WeaponBaseCatalog>>>,
+    dps_reset_pending: Arc<AtomicBool>,
     app_handle: AppHandle,
 ) {
     // Check if already running
@@ -254,6 +261,16 @@ fn start_scanner_internal(
                         return;
                     }
                 };
+                // Non-fatal: loot/notification path keeps working without
+                // DPS readings if the hook fails to install.
+                if let Err(e) = shared_state.dps_hook.install(
+                    shared_state.ctx.process.handle,
+                    shared_state.ctx.d2_common,
+                    shared_state.ctx.d2_client,
+                ) {
+                    log_error(&format!("DPS hook install failed: {}", e));
+                }
+
                 (shared_state, scanner)
             };
 
@@ -311,6 +328,8 @@ fn start_scanner_internal(
             let mut weapon_bases_published = false;
             let mut pending_set_always_show = false;
             let mut last_emitted_always_show: Option<bool> = None;
+            // Area-change check throttle (~150 ms at 30 ms tick).
+            let mut dps_area_tick_counter: u32 = 0;
 
             // Main scanning loop
             while is_scanning.load(Ordering::SeqCst) {
@@ -631,6 +650,56 @@ fn start_scanner_internal(
                             log_error(&format!("Failed to emit breakpoints-update: {}", e));
                         }
                     }
+
+                    #[cfg(target_os = "windows")]
+                    {
+                        const AREA_CHECK_EVERY: u32 = 5;
+                        let events = shared_state.dps_hook.drain();
+                        let manual_reset = dps_reset_pending.swap(false, Ordering::SeqCst);
+
+                        dps_area_tick_counter = dps_area_tick_counter.wrapping_add(1);
+                        let area_token = if dps_area_tick_counter % AREA_CHECK_EVERY == 0 {
+                            shared_state.read_current_area_token()
+                        } else {
+                            None
+                        };
+                        let area_change = match area_token {
+                            Some(token) => {
+                                // Sentinel -1 means first observation: record
+                                // without resetting.
+                                let prev = shared_state
+                                    .last_area_token
+                                    .swap(token as i64, Ordering::Relaxed);
+                                prev >= 0 && prev != token as i64
+                            }
+                            None => false,
+                        };
+
+                        if let Ok(mut meter) = shared_state.dps_meter.write() {
+                            if manual_reset || area_change {
+                                if area_change {
+                                    log_info(&format!(
+                                        "DPS meter: area change → token 0x{:08X} (auto-reset)",
+                                        area_token.unwrap_or(0)
+                                    ));
+                                }
+                                meter.reset();
+                            }
+                            for ev in &events {
+                                meter.ingest(
+                                    ev.ts_ms,
+                                    ev.delta_raw,
+                                    ev.max_hp,
+                                    ev.monster_level,
+                                );
+                            }
+                            let snap = meter.snapshot(crate::dps_meter::now_ms());
+                            drop(meter);
+                            if let Err(e) = app_handle.emit("dps-update", &snap) {
+                                log_error(&format!("Failed to emit dps-update: {}", e));
+                            }
+                        }
+                    }
                 }
 
                 thread::sleep(Duration::from_millis(30));
@@ -685,6 +754,7 @@ fn spawn_auto_scanner(
     loot_history: Arc<RwLock<LootHistory>>,
     breakpoints_polling: Arc<AtomicBool>,
     weapon_base_catalog: Arc<RwLock<Option<weapon_families::WeaponBaseCatalog>>>,
+    dps_reset_pending: Arc<AtomicBool>,
     app_handle: AppHandle,
 ) {
     thread::spawn(move || {
@@ -705,6 +775,7 @@ fn spawn_auto_scanner(
                     loot_history.clone(),
                     breakpoints_polling.clone(),
                     weapon_base_catalog.clone(),
+                    dps_reset_pending.clone(),
                     app_handle.clone(),
                 );
             }
@@ -806,6 +877,11 @@ fn set_auto_always_show_items(enabled: bool, state: tauri::State<AppState>) {
 #[tauri::command]
 fn set_breakpoints_polling(enabled: bool, state: tauri::State<AppState>) {
     state.breakpoints_polling.store(enabled, Ordering::SeqCst);
+}
+
+#[tauri::command]
+fn reset_dps_session(state: tauri::State<AppState>) {
+    state.dps_reset_pending.store(true, Ordering::SeqCst);
 }
 
 #[tauri::command]
@@ -1407,6 +1483,7 @@ fn main() {
                 breakpoints_polling: Arc::new(AtomicBool::new(false)),
                 speedcalc_table: Arc::new(RwLock::new(None)),
                 weapon_base_catalog: Arc::new(RwLock::new(cached_weapon_bases)),
+                dps_reset_pending: Arc::new(AtomicBool::new(false)),
             };
             let is_scanning = state.is_scanning.clone();
             let should_auto_scan = state.should_auto_scan.clone();
@@ -1423,6 +1500,7 @@ fn main() {
             let breakpoints_polling = state.breakpoints_polling.clone();
             let speedcalc_table_for_cache = state.speedcalc_table.clone();
             let weapon_base_catalog = state.weapon_base_catalog.clone();
+            let dps_reset_pending = state.dps_reset_pending.clone();
             app.manage(state);
 
             if let Some(dir) = app.handle().path().app_data_dir().ok() {
@@ -1438,12 +1516,16 @@ fn main() {
             let edit_mode_state = EditModeState::new();
             let reveal_hidden_state = RevealHiddenState::new(reveal_hidden_active.clone());
             let loot_history_hotkey_state = LootHistoryHotkeyState::new();
+            let dps_meter_toggle_state = DpsMeterToggleHotkeyState::new();
+            let dps_meter_reset_state = DpsMeterResetHotkeyState::new();
 
             // Load settings and start hotkey listener
             let app_handle_for_hotkeys = app.handle().clone();
             let app_handle_for_edit_mode = app.handle().clone();
             let app_handle_for_reveal = app.handle().clone();
             let app_handle_for_loot_history = app.handle().clone();
+            let app_handle_for_dps_toggle = app.handle().clone();
+            let app_handle_for_dps_reset = app.handle().clone();
             match settings::load_settings(app.handle().clone()) {
                 Ok(loaded_settings) => {
                     hotkey_state
@@ -1458,6 +1540,12 @@ fn main() {
                         app_handle_for_loot_history,
                         loaded_settings.loot_history_hotkey,
                     );
+                    if let Some(hk) = loaded_settings.dps_meter.hotkey_toggle.clone() {
+                        dps_meter_toggle_state.start(app_handle_for_dps_toggle, hk);
+                    }
+                    if let Some(hk) = loaded_settings.dps_meter.hotkey_reset.clone() {
+                        dps_meter_reset_state.start(app_handle_for_dps_reset, hk);
+                    }
                     verbose_filter_logging
                         .store(loaded_settings.verbose_filter_logging, Ordering::SeqCst);
                     auto_always_show_items
@@ -1472,6 +1560,8 @@ fn main() {
                     reveal_hidden_state.start(app_handle_for_reveal, defaults.reveal_hidden_hotkey);
                     loot_history_hotkey_state
                         .start(app_handle_for_loot_history, defaults.loot_history_hotkey);
+                    // DPS-meter watchers stay asleep until the user binds one.
+                    let _ = (app_handle_for_dps_toggle, app_handle_for_dps_reset);
                 }
             }
 
@@ -1479,6 +1569,8 @@ fn main() {
             app.manage(edit_mode_state);
             app.manage(reveal_hidden_state);
             app.manage(loot_history_hotkey_state);
+            app.manage(dps_meter_toggle_state);
+            app.manage(dps_meter_reset_state);
 
             // Spawn auto-scanner monitor
             let app_handle = app.handle().clone();
@@ -1497,6 +1589,7 @@ fn main() {
                 loot_history.clone(),
                 breakpoints_polling.clone(),
                 weapon_base_catalog.clone(),
+                dps_reset_pending.clone(),
                 app_handle,
             );
 
@@ -1576,6 +1669,9 @@ fn main() {
             hotkeys::update_edit_mode_hotkey,
             hotkeys::update_reveal_hidden_hotkey,
             hotkeys::update_loot_history_hotkey,
+            hotkeys::update_dps_meter_toggle_hotkey,
+            hotkeys::update_dps_meter_reset_hotkey,
+            reset_dps_session,
             profiles::list_profiles,
             profiles::load_profile,
             profiles::save_profile,
