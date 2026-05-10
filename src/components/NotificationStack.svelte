@@ -1,6 +1,7 @@
 <script lang="ts">
   import Notification from './Notification.svelte';
-  
+  import { widgetPosition } from '../stores/widget-positions.svelte';
+
   type UniqueKind = 'tu' | 'su' | 'ssu' | 'sssu';
 
   interface NotificationFilter {
@@ -26,10 +27,6 @@
 
   interface Props {
     items: ItemDrop[];
-    /** Anchor x position as percentage of overlay width (0-100). */
-    x?: number;
-    /** Anchor y position as percentage of overlay height (0-100). */
-    y?: number;
     maxVisible?: number;
     fontSize?: number;
     opacity?: number;
@@ -38,20 +35,19 @@
 
   let {
     items,
-    x = 1,
-    y = 1,
     maxVisible = 10,
     fontSize = 14,
     opacity = 0.9,
     compactName = false,
   }: Props = $props();
 
+  let pos = $derived(widgetPosition('notifications'));
   const visibleItems = $derived(items.slice(0, maxVisible));
 </script>
 
 <div
   class="notification-stack"
-  style="top: {y}%; left: {x}%;"
+  style="top: {pos.y}%; left: {pos.x}%;"
 >
   {#each visibleItems as item (item.unit_id)}
     <Notification
@@ -74,7 +70,7 @@
     pointer-events: none;
     z-index: 9999;
   }
-  
+
   .notification-stack > :global(*) {
     pointer-events: auto;
   }

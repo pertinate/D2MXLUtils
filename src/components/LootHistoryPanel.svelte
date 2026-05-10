@@ -1,8 +1,11 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { lootHistoryStore, type LootHistoryEntry } from '../stores';
+  import { widgetPosition } from '../stores/widget-positions.svelte';
 
   let { onClose } = $props<{ onClose: () => void }>();
+
+  let pos = $derived(widgetPosition('loot-history'));
 
   let scrollContainer: HTMLDivElement | null = $state(null);
   let stickToBottom = $state(true);
@@ -87,7 +90,13 @@
   });
 </script>
 
-<div class="loot-history-panel" role="dialog" aria-label="Loot history">
+<div
+  class="loot-history-panel"
+  role="dialog"
+  aria-label="Loot history"
+  style:top="{pos.y}%"
+  style:left="{pos.x}%"
+>
   <header>
     <h2>Loot History</h2>
     <div class="header-actions">
@@ -126,9 +135,7 @@
 <style>
   .loot-history-panel {
     position: fixed;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
+    /* top/left supplied inline via style:top / style:left */
     max-width: min(700px, 60vw);
     width: 100%;
     max-height: 70vh;

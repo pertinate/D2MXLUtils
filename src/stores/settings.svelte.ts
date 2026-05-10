@@ -31,14 +31,15 @@ export interface SoundSlot {
   source: SoundSource;
 }
 
-export interface DpsMeterPosition {
+export interface WidgetPosition {
+  /** Percent of overlay width, 0..100 */
   x: number;
+  /** Percent of overlay height, 0..100 */
   y: number;
 }
 
 export interface DpsMeterSettings {
   enabled: boolean;
-  position: DpsMeterPosition | null;
   hotkeyToggle: HotkeyConfig | null;
   hotkeyReset: HotkeyConfig | null;
 }
@@ -59,10 +60,6 @@ export interface AppSettings {
   notificationFontSize: number;
   /** Notification background opacity (0.0 - 1.0) */
   notificationOpacity: number;
-  /** Notification position X offset from edge (percentage 0-100) */
-  notificationX: number;
-  /** Notification position Y offset from edge (percentage 0-100) */
-  notificationY: number;
   /** When true, drop the unique/set name line for Set/TU/SU/SSU/SSSU items
    *  and show only the base type. Stat-flagged rules ignore this. */
   compactName: boolean;
@@ -84,6 +81,9 @@ export interface AppSettings {
   goblinAlertSlot: number | null;
   /** DPS meter overlay panel. */
   dpsMeter: DpsMeterSettings;
+  /** Centralized positions for repositionable overlay widgets, keyed by id.
+   *  See `src/lib/overlay-widgets.ts`. Percent of overlay size. */
+  widgetPositions: Record<string, WidgetPosition>;
 }
 
 /** Window state interface */
@@ -138,8 +138,6 @@ const DEFAULT_SETTINGS: AppSettings = {
   notificationStackDirection: 'up',
   notificationFontSize: 14,
   notificationOpacity: 0.9,
-  notificationX: 1.0,
-  notificationY: 1.0,
   compactName: false,
   toggleWindowHotkey: DEFAULT_HOTKEY,
   editOverlayHotkey: DEFAULT_EDIT_OVERLAY_HOTKEY,
@@ -151,10 +149,10 @@ const DEFAULT_SETTINGS: AppSettings = {
   goblinAlertSlot: null,
   dpsMeter: {
     enabled: false,
-    position: null,
     hotkeyToggle: null,
     hotkeyReset: null,
   },
+  widgetPositions: {},
 };
 
 /** Settings store singleton */
@@ -401,20 +399,8 @@ class SettingsStore {
     }
   }
 
-  /** Set notification anchor position (percentages 0-100) */
-  setNotificationPosition(x: number, y: number): void {
-    this.update({ notificationX: x, notificationY: y });
-  }
-
   setDpsMeterEnabled(enabled: boolean): void {
     this.set('dpsMeter', { ...this._settings.dpsMeter, enabled });
-  }
-
-  setDpsMeterPosition(x: number, y: number): void {
-    this.set('dpsMeter', {
-      ...this._settings.dpsMeter,
-      position: { x, y },
-    });
   }
 
   async setDpsMeterToggleHotkey(hotkey: HotkeyConfig): Promise<void> {

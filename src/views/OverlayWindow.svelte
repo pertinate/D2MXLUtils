@@ -39,14 +39,10 @@
   let notificationFontSize = $derived(settingsStore.settings.notificationFontSize);
   let notificationOpacity = $derived(settingsStore.settings.notificationOpacity);
   let compactName = $derived(settingsStore.settings.compactName);
-  let notificationX = $derived(settingsStore.settings.notificationX);
-  let notificationY = $derived(settingsStore.settings.notificationY);
   let soundVolume = $derived(settingsStore.settings.soundVolume);
 
   let editActive = $state(false);
   let historyVisible = $state(false);
-  let pendingX = $state(0);
-  let pendingY = $state(0);
 
   let dpsMeterEnabled = $derived(settingsStore.settings.dpsMeter?.enabled ?? false);
   
@@ -116,24 +112,13 @@
     }).then(u => unlisteners.push(u));
 
     listen<{ active: boolean }>('overlay-edit-mode', async (event) => {
-      const active = event.payload.active;
-      if (active) {
-        pendingX = notificationX;
-        pendingY = notificationY;
-        editActive = true;
-        try {
-          await invoke('set_overlay_interactive', { active: true });
-        } catch (err) {
-          console.error('[Overlay] set_overlay_interactive(true) failed:', err);
-        }
-      } else {
-        editActive = false;
-        try {
-          await invoke('set_overlay_interactive', { active: historyVisible });
-        } catch (err) {
-          console.error('[Overlay] set_overlay_interactive(false) failed:', err);
-        }
-        settingsStore.setNotificationPosition(pendingX, pendingY);
+      editActive = event.payload.active;
+      try {
+        await invoke('set_overlay_interactive', {
+          active: editActive || historyVisible,
+        });
+      } catch (err) {
+        console.error('[Overlay] set_overlay_interactive failed:', err);
       }
     }).then(u => unlisteners.push(u));
 
@@ -182,8 +167,6 @@
 <main class="overlay">
   <NotificationStack
     {items}
-    x={notificationX}
-    y={notificationY}
     maxVisible={10}
     fontSize={notificationFontSize}
     opacity={notificationOpacity}
@@ -191,11 +174,7 @@
   />
   <AlwaysShowItemsIndicator />
   {#if editActive}
-    <OverlayEditGrid
-      x={pendingX}
-      y={pendingY}
-      onchange={(nx, ny) => { pendingX = nx; pendingY = ny; }}
-    />
+    <OverlayEditGrid />
   {/if}
   {#if historyVisible}
     <LootHistoryPanel onClose={() => {
@@ -204,7 +183,7 @@
     }} />
   {/if}
   {#if dpsMeterEnabled}
-    <DpsMeter editActive={editActive} />
+    <DpsMeter />
   {/if}
 </main>
 

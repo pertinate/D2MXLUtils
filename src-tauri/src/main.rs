@@ -12,6 +12,7 @@ mod loot_filter_hook;
 mod loot_history;
 mod map_marker;
 mod marker_scanner;
+mod migrations;
 mod notifier;
 mod offsets;
 mod process;

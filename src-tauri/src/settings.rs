@@ -3,6 +3,8 @@
 //! Handles loading and saving application settings using tauri-plugin-store.
 //! Settings are stored in a JSON file in the app's data directory.
 
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 use tauri_plugin_store::StoreExt;
@@ -19,18 +21,18 @@ pub struct DpsMeterSettings {
     #[serde(default)]
     pub enabled: bool,
     #[serde(default)]
-    pub position: Option<DpsMeterPosition>,
-    #[serde(default)]
     pub hotkey_toggle: Option<HotkeyConfig>,
     #[serde(default)]
     pub hotkey_reset: Option<HotkeyConfig>,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+/// Position of an overlay widget, expressed as a percentage of the
+/// overlay (0..=100 on each axis).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
-pub struct DpsMeterPosition {
-    pub x: i32,
-    pub y: i32,
+pub struct WidgetPosition {
+    pub x: f64,
+    pub y: f64,
 }
 
 /// One configurable drop-sound slot. Index in `AppSettings.sounds` + 1
@@ -97,14 +99,6 @@ pub struct AppSettings {
     #[serde(default = "default_notification_opacity")]
     pub notification_opacity: f32,
 
-    /// Notification position X offset from edge (percentage 0-100)
-    #[serde(default = "default_notification_x")]
-    pub notification_x: f32,
-
-    /// Notification position Y offset from edge (percentage 0-100)
-    #[serde(default = "default_notification_y")]
-    pub notification_y: f32,
-
     /// When true, show only base name for Set/TU/SU/SSU/SSSU drops
     /// (single-line layout). Stat-flagged rules ignore this.
     #[serde(default)]
@@ -146,6 +140,11 @@ pub struct AppSettings {
     /// DPS meter overlay panel.
     #[serde(default)]
     pub dps_meter: DpsMeterSettings,
+
+    /// Centralized positions for repositionable overlay widgets, keyed by
+    /// widget id (see `src/lib/overlay-widgets.ts`). Percent of overlay size.
+    #[serde(default)]
+    pub widget_positions: HashMap<String, WidgetPosition>,
 }
 
 /// Window state for persistence
@@ -182,14 +181,6 @@ fn default_notification_font_size() -> u32 {
 
 fn default_notification_opacity() -> f32 {
     0.9
-}
-
-fn default_notification_x() -> f32 {
-    1.0
-}
-
-fn default_notification_y() -> f32 {
-    1.0
 }
 
 fn default_auto_always_show_items() -> bool {
@@ -230,8 +221,6 @@ impl Default for AppSettings {
             notification_stack_direction: default_stack_direction(),
             notification_font_size: default_notification_font_size(),
             notification_opacity: default_notification_opacity(),
-            notification_x: default_notification_x(),
-            notification_y: default_notification_y(),
             compact_name: false,
             toggle_window_hotkey: HotkeyConfig::default(),
             edit_overlay_hotkey: default_edit_overlay_hotkey(),
@@ -242,6 +231,7 @@ impl Default for AppSettings {
             sounds: default_sounds(),
             goblin_alert_slot: None,
             dps_meter: DpsMeterSettings::default(),
+            widget_positions: HashMap::new(),
         }
     }
 }
@@ -265,17 +255,26 @@ pub fn load_settings(app: AppHandle) -> Result<AppSettings, String> {
         .store(SETTINGS_FILE)
         .map_err(|e| format!("Failed to open settings store: {}", e))?;
 
-    // Try to get settings from store, use defaults if not found
-    let settings: AppSettings = match store.get("settings") {
-        Some(value) => serde_json::from_value(value.clone()).unwrap_or_else(|e| {
+    let Some(raw) = store.get("settings") else {
+        log_info("No settings found, using defaults");
+        return Ok(AppSettings::default());
+    };
+
+    let mut settings: AppSettings = serde_json::from_value(raw.clone())
+        .unwrap_or_else(|e| {
             log_error(&format!("Failed to parse settings, using defaults: {}", e));
             AppSettings::default()
-        }),
-        None => {
-            log_info("No settings found, using defaults");
-            AppSettings::default()
-        }
-    };
+        });
+
+    if crate::migrations::migrate(&raw, &mut settings) {
+        let value = serde_json::to_value(&settings)
+            .map_err(|e| format!("Failed to serialize migrated settings: {}", e))?;
+        store.set("settings", value);
+        store
+            .save()
+            .map_err(|e| format!("Failed to save migrated settings: {}", e))?;
+        log_info("Settings migrated and re-saved");
+    }
 
     Ok(settings)
 }
