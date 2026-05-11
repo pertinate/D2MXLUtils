@@ -12,7 +12,7 @@ use crate::logger::error as log_error;
 use crate::map_marker::{self, MapMarkerManager, MarkerItem};
 use crate::offsets::{d2client, unit};
 use crate::rules::Visibility;
-use crate::scanner_state::{CachedFilterDecision, SharedScannerState};
+use crate::scanner_state::{BfsItemCandidate, CachedFilterDecision, SharedScannerState};
 
 pub struct MarkerScanner {
     state: Arc<SharedScannerState>,
@@ -44,6 +44,41 @@ fn mark_marker_path_active(markers_cleared: &mut bool) {
     *markers_cleared = false;
 }
 
+fn bfs_candidates_from_positions(
+    positions: &[(u32, i32, i32)],
+    unit_ids: &HashMap<u32, u32>,
+) -> HashMap<u32, BfsItemCandidate> {
+    positions
+        .iter()
+        .filter_map(|&(p_unit, sub_x, sub_y)| {
+            unit_ids.get(&p_unit).map(|&unit_id| {
+                (
+                    unit_id,
+                    BfsItemCandidate {
+                        unit_id,
+                        p_unit,
+                        sub_x,
+                        sub_y,
+                    },
+                )
+            })
+        })
+        .collect()
+}
+
+fn replace_recent_bfs_items(
+    state: &SharedScannerState,
+    candidates: HashMap<u32, BfsItemCandidate>,
+) {
+    if let Ok(mut guard) = state.recent_bfs_items.write() {
+        *guard = candidates;
+    }
+}
+
+fn clear_recent_bfs_items(state: &SharedScannerState) {
+    replace_recent_bfs_items(state, HashMap::new());
+}
+
 impl MarkerScanner {
     pub fn new(state: Arc<SharedScannerState>) -> Self {
         Self {
@@ -63,6 +98,7 @@ impl MarkerScanner {
             .read_memory::<u32>(self.state.ctx.d2_client + d2client::PLAYER_UNIT)
             .unwrap_or(0);
         if p_player == 0 {
+            clear_recent_bfs_items(self.state.as_ref());
             return;
         }
 
@@ -73,16 +109,24 @@ impl MarkerScanner {
                     self.state.filter_generation.load(Ordering::SeqCst),
                 )
             }),
-            Err(_) => return,
+            Err(_) => {
+                clear_recent_bfs_items(self.state.as_ref());
+                return;
+            }
         };
         let Some((filter_arc, current_generation)) = filter_snapshot else {
+            clear_recent_bfs_items(self.state.as_ref());
             return;
         };
         let has_map_rules = match filter_arc.read() {
             Ok(f) => f.has_map_rules(),
-            Err(_) => return,
+            Err(_) => {
+                clear_recent_bfs_items(self.state.as_ref());
+                return;
+            }
         };
         if !has_map_rules {
+            clear_recent_bfs_items(self.state.as_ref());
             if take_marker_clear_needed(&mut self.markers_cleared) {
                 if let Err(e) = self.map_marker.clear(&self.state.ctx) {
                     log_error(&format!("map_marker clear (no map rules) failed: {}", e));
@@ -97,6 +141,7 @@ impl MarkerScanner {
         let positions = match map_marker::bfs_item_positions(&self.state.ctx, 10) {
             Ok(v) => v,
             Err(e) => {
+                clear_recent_bfs_items(self.state.as_ref());
                 log_error(&format!("map_marker BFS failed: {}", e));
                 return;
             }
@@ -115,6 +160,8 @@ impl MarkerScanner {
                 bfs_unit_ids.insert(uid);
             }
         }
+        let candidates = bfs_candidates_from_positions(&positions, &unit_ids);
+        replace_recent_bfs_items(self.state.as_ref(), candidates);
 
         // Snapshot, then release the read lock — items thread mustn't block
         // on inserts while marker reconciliation runs.
@@ -161,6 +208,7 @@ impl MarkerScanner {
 
     /// Drop all markers; called on game-entry transitions.
     pub fn clear(&mut self) {
+        clear_recent_bfs_items(self.state.as_ref());
         if let Err(e) = self.map_marker.clear(&self.state.ctx) {
             log_error(&format!("map_marker clear (game-entry) failed: {}", e));
         }
@@ -169,6 +217,7 @@ impl MarkerScanner {
 
     /// Drop all markers; called when D2 closes or the scanner stops.
     pub fn shutdown(&mut self) {
+        clear_recent_bfs_items(self.state.as_ref());
         if let Err(e) = self.map_marker.clear(&self.state.ctx) {
             log_error(&format!("map_marker clear on shutdown failed: {}", e));
         }
@@ -179,6 +228,7 @@ impl MarkerScanner {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use crate::rules::Visibility;
     use crate::scanner_state::CachedFilterDecision;
 

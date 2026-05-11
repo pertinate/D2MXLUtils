@@ -41,6 +41,8 @@ use crate::loot_history::{LootEntry, LootHistory, PickupState};
 
 use notifier::{DropScanner, ItemsDictionary};
 
+const MARKER_SCAN_INTERVAL_MS: u64 = 100;
+
 // Windows-only imports for process / overlay / privileges
 #[cfg(target_os = "windows")]
 use std::ffi::OsStr;
@@ -138,7 +140,7 @@ fn spawn_marker_thread(
                     marker_scanner.clear();
                 }
                 marker_scanner.tick();
-                thread::sleep(Duration::from_millis(30));
+                thread::sleep(Duration::from_millis(MARKER_SCAN_INTERVAL_MS));
             }
             marker_scanner.shutdown();
         })

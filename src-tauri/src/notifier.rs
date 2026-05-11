@@ -2,7 +2,7 @@
 //!
 //! This module implements the core NotifierMain logic from D2Stats.au3
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 
 #[cfg(target_os = "windows")]
@@ -31,7 +31,7 @@ use crate::process::D2Context;
 use crate::rules::{FilterConfig, MatchContext, Visibility};
 use crate::rules::{ItemTier, Notification};
 #[cfg(target_os = "windows")]
-use crate::scanner_state::{CachedFilterDecision, SharedScannerState};
+use crate::scanner_state::{BfsItemCandidate, CachedFilterDecision, SharedScannerState};
 
 /// MonStats.txt class IDs that count as "goblins" for the alert sound.
 /// Ported verbatim from `D2Stats.au3:$g_goblinIds`.
@@ -136,6 +136,22 @@ pub struct DropScanner {
 const MISSED_TICKS_BEFORE_BIT_CLEAR: u8 = 2;
 #[cfg(target_os = "windows")]
 const HOOK_CLEANUP_FAILURE_LOG_SUPPRESSED_TICKS: u32 = 166;
+
+#[cfg(target_os = "windows")]
+fn should_enrich_bfs_candidate(
+    candidate: &BfsItemCandidate,
+    current_item_ids: &HashSet<u32>,
+    recent_filter_decisions: &HashMap<u32, CachedFilterDecision>,
+    current_generation: u64,
+) -> bool {
+    if current_item_ids.contains(&candidate.unit_id) {
+        return false;
+    }
+    !matches!(
+        recent_filter_decisions.get(&candidate.unit_id),
+        Some(decision) if decision.generation == current_generation
+    )
+}
 
 #[cfg(target_os = "windows")]
 fn visibility_mask_op_description(op: VisibilityMaskOp) -> &'static str {
@@ -351,6 +367,7 @@ impl DropScanner {
         self.pending_visibility_ops.clear();
         self.state.recent_events.write().unwrap().clear();
         self.state.recent_filter_decisions.write().unwrap().clear();
+        self.state.recent_bfs_items.write().unwrap().clear();
         let mut hook_masks_cleared = !self.loot_hook.is_injected();
         if self.loot_hook.is_injected() {
             hook_masks_cleared = true;
@@ -457,6 +474,148 @@ impl DropScanner {
     /// Get a reference to the D2Context
     pub fn context(&self) -> &D2Context {
         &self.state.ctx
+    }
+
+    fn process_scanned_item(&mut self, scanned: ScannedItem, events: &mut Vec<ItemDropEvent>) {
+        let event = self.to_event(scanned);
+        let unit_id = event.unit_id;
+
+        let mut event = event;
+        let mut should_emit = true;
+        let mut hook_bits_may_exist = false;
+        let mut cached_filter_decision = None;
+        let filter_snapshot = {
+            let guard = self.state.filter_config.read().unwrap();
+            guard.as_ref().map(|filter_arc| {
+                (
+                    filter_arc.clone(),
+                    self.state.filter_generation.load(Ordering::SeqCst),
+                )
+            })
+        };
+        if let Some((filter_arc, filter_generation)) = filter_snapshot {
+            if let Ok(filter) = filter_arc.read() {
+                let ctx = MatchContext::new(&event);
+                let decision = filter.decide(&ctx);
+                cached_filter_decision = Some(CachedFilterDecision::from_decision(
+                    filter_generation,
+                    &decision,
+                ));
+
+                if self.verbose_filter_logging {
+                    let winner = filter.rules.iter().rev().find(|r| ctx.matches(r));
+                    let reason = match winner {
+                        Some(r) => {
+                            format!("winner={}", r.name_pattern.as_deref().unwrap_or("<any>"))
+                        }
+                        None => {
+                            format!("no rule matched (hide_all={})", filter.hide_all)
+                        }
+                    };
+                    let vis_label = match decision.visibility {
+                        Visibility::Show => "SHOW",
+                        Visibility::Hide => "HIDE",
+                        Visibility::Default => "DEFAULT",
+                    };
+                    let category_label = event
+                        .category
+                        .as_deref()
+                        .map(|c| format!(" [{}]", c.replace('\n', "|")))
+                        .unwrap_or_default();
+                    log_info(&format!(
+                        "[Filter] \"{} {}\"{} ({}, class={}) -> {} notify={} | {}",
+                        event.name,
+                        event.base_name,
+                        category_label,
+                        event.quality,
+                        event.class,
+                        vis_label,
+                        decision.notification.is_some(),
+                        reason
+                    ));
+                }
+
+                if self.loot_hook.is_injected() {
+                    hook_bits_may_exist = true;
+                    let failed_ops = self.apply_visibility_mask_ops(
+                        event.unit_id,
+                        visibility_mask_ops(decision.visibility),
+                    );
+                    self.pending_visibility_ops
+                        .record_failed(event.unit_id, failed_ops);
+                }
+
+                match decision.notification {
+                    Some(n) => event.filter = Some(n),
+                    None => should_emit = false,
+                }
+            }
+        }
+
+        // Cache enriched event for the map-marker pass.
+        self.state
+            .recent_events
+            .write()
+            .unwrap()
+            .insert(event.unit_id, event.clone());
+        if let Some(decision) = cached_filter_decision {
+            self.state
+                .recent_filter_decisions
+                .write()
+                .unwrap()
+                .insert(event.unit_id, decision);
+        } else {
+            self.state
+                .recent_filter_decisions
+                .write()
+                .unwrap()
+                .remove(&event.unit_id);
+        }
+
+        if should_emit {
+            // Push to session history (only filter-matched items — same gate
+            // as overlay notifications).
+            if event.filter.is_some() {
+                let color = event
+                    .filter
+                    .as_ref()
+                    .and_then(|n| n.color.as_ref())
+                    .map(|c| c.lowercase_name().to_string());
+                let entry = crate::loot_history::LootEntry {
+                    unit_id: event.unit_id,
+                    timestamp_ms: crate::loot_history::now_ms(),
+                    name: event.name.clone(),
+                    quality: event.quality.clone(),
+                    color,
+                    pickup: crate::loot_history::PickupState::Pending,
+                    seed: event.seed,
+                };
+                // Only fresh inserts emit `loot-history-entry`; dedup-merges
+                // silently update the existing row (frontend keys by `seed`).
+                let outcome = if let Ok(mut hist) = self.loot_history.write() {
+                    hist.push(entry)
+                } else {
+                    crate::loot_history::PushOutcome::Duplicate
+                };
+                event.history_pushed =
+                    matches!(outcome, crate::loot_history::PushOutcome::Inserted);
+            }
+            events.push(event);
+        }
+
+        // Keep after show/hide writes: inspected releases the trampoline gate.
+        if self.loot_hook.is_injected() {
+            hook_bits_may_exist = true;
+            if let Err(e) = self
+                .loot_hook
+                .add_inspected_unit_id(&self.state.ctx, unit_id)
+            {
+                log_error(&format!("Failed to mark item {} inspected: {}", unit_id, e));
+            }
+        }
+        if hook_bits_may_exist {
+            self.hook_bits.mark_written(unit_id);
+        }
     }
 
     /// Scan ground items (pPaths pass) and return fresh notification events.
@@ -641,150 +800,65 @@ impl DropScanner {
                 }
 
                 if let Some(scanned) = self.scan_unit(p_unit, &unit) {
-                    let event = self.to_event(scanned);
-                    let unit_id = event.unit_id;
-
-                    let mut event = event;
-                    let mut should_emit = true;
-                    let mut hook_bits_may_exist = false;
-                    let mut cached_filter_decision = None;
-                    let filter_snapshot = {
-                        let guard = self.state.filter_config.read().unwrap();
-                        guard.as_ref().map(|filter_arc| {
-                            (
-                                filter_arc.clone(),
-                                self.state.filter_generation.load(Ordering::SeqCst),
-                            )
-                        })
-                    };
-                    if let Some((filter_arc, filter_generation)) = filter_snapshot {
-                        if let Ok(filter) = filter_arc.read() {
-                            let ctx = MatchContext::new(&event);
-                            let decision = filter.decide(&ctx);
-                            cached_filter_decision = Some(CachedFilterDecision::from_decision(
-                                filter_generation,
-                                &decision,
-                            ));
-
-                            if self.verbose_filter_logging {
-                                let winner = filter.rules.iter().rev().find(|r| ctx.matches(r));
-                                let reason = match winner {
-                                    Some(r) => format!(
-                                        "winner={}",
-                                        r.name_pattern.as_deref().unwrap_or("<any>")
-                                    ),
-                                    None => {
-                                        format!("no rule matched (hide_all={})", filter.hide_all)
-                                    }
-                                };
-                                let vis_label = match decision.visibility {
-                                    Visibility::Show => "SHOW",
-                                    Visibility::Hide => "HIDE",
-                                    Visibility::Default => "DEFAULT",
-                                };
-                                let category_label = event
-                                    .category
-                                    .as_deref()
-                                    .map(|c| format!(" [{}]", c.replace('\n', "|")))
-                                    .unwrap_or_default();
-                                log_info(&format!(
-                                    "[Filter] \"{} {}\"{} ({}, class={}) -> {} notify={} | {}",
-                                    event.name,
-                                    event.base_name,
-                                    category_label,
-                                    event.quality,
-                                    event.class,
-                                    vis_label,
-                                    decision.notification.is_some(),
-                                    reason
-                                ));
-                            }
-
-                            if self.loot_hook.is_injected() {
-                                hook_bits_may_exist = true;
-                                let failed_ops = self.apply_visibility_mask_ops(
-                                    event.unit_id,
-                                    visibility_mask_ops(decision.visibility),
-                                );
-                                self.pending_visibility_ops
-                                    .record_failed(event.unit_id, failed_ops);
-                            }
-
-                            match decision.notification {
-                                Some(n) => event.filter = Some(n),
-                                None => should_emit = false,
-                            }
-                        }
-                    }
-
-                    // Cache enriched event for the map-marker pass.
-                    self.state
-                        .recent_events
-                        .write()
-                        .unwrap()
-                        .insert(event.unit_id, event.clone());
-                    if let Some(decision) = cached_filter_decision {
-                        self.state
-                            .recent_filter_decisions
-                            .write()
-                            .unwrap()
-                            .insert(event.unit_id, decision);
-                    } else {
-                        self.state
-                            .recent_filter_decisions
-                            .write()
-                            .unwrap()
-                            .remove(&event.unit_id);
-                    }
-
-                    if should_emit {
-                        // Push to session history (only filter-matched items
-                        // — same gate as overlay notifications).
-                        if event.filter.is_some() {
-                            let color = event
-                                .filter
-                                .as_ref()
-                                .and_then(|n| n.color.as_ref())
-                                .map(|c| c.lowercase_name().to_string());
-                            let entry = crate::loot_history::LootEntry {
-                                unit_id: event.unit_id,
-                                timestamp_ms: crate::loot_history::now_ms(),
-                                name: event.name.clone(),
-                                quality: event.quality.clone(),
-                                color,
-                                pickup: crate::loot_history::PickupState::Pending,
-                                seed: event.seed,
-                            };
-                            // Only fresh inserts emit `loot-history-entry`;
-                            // dedup-merges silently update the existing row
-                            // (frontend keys by `seed`, so no notification
-                            // needed when only `unit_id` changes underneath).
-                            let outcome = if let Ok(mut hist) = self.loot_history.write() {
-                                hist.push(entry)
-                            } else {
-                                crate::loot_history::PushOutcome::Duplicate
-                            };
-                            event.history_pushed =
-                                matches!(outcome, crate::loot_history::PushOutcome::Inserted);
-                        }
-                        events.push(event);
-                    }
-
-                    // Keep after show/hide writes: inspected releases the trampoline gate.
-                    if self.loot_hook.is_injected() {
-                        hook_bits_may_exist = true;
-                        if let Err(e) = self
-                            .loot_hook
-                            .add_inspected_unit_id(&self.state.ctx, unit_id)
-                        {
-                            log_error(&format!("Failed to mark item {} inspected: {}", unit_id, e));
-                        }
-                    }
-                    if hook_bits_may_exist {
-                        self.hook_bits.mark_written(unit_id);
-                    }
+                    self.process_scanned_item(scanned, &mut events);
                 }
                 p_unit = next_unit;
+            }
+        }
+
+        let mut bfs_candidates: Vec<BfsItemCandidate> = self
+            .state
+            .recent_bfs_items
+            .read()
+            .map(|items| items.values().copied().collect())
+            .unwrap_or_default();
+        bfs_candidates.sort_by_key(|candidate| candidate.unit_id);
+        let current_generation = self.state.filter_generation.load(Ordering::SeqCst);
+        let decision_snapshot: HashMap<u32, CachedFilterDecision> = self
+            .state
+            .recent_filter_decisions
+            .read()
+            .map(|decisions| decisions.clone())
+            .unwrap_or_default();
+        for candidate in bfs_candidates {
+            let needs_enrichment = should_enrich_bfs_candidate(
+                &candidate,
+                &current_item_ids,
+                &decision_snapshot,
+                current_generation,
+            );
+            if current_item_ids.contains(&candidate.unit_id) {
+                continue;
+            }
+
+            let unit: UnitAny = match self
+                .state
+                .ctx
+                .process
+                .read_memory(candidate.p_unit as usize)
+            {
+                Ok(unit) => unit,
+                Err(_) => continue,
+            };
+            if unit.unit_type != unit_type::ITEM || unit.unit_id != candidate.unit_id {
+                continue;
+            }
+            current_item_ids.insert(unit.unit_id);
+
+            if self.loot_hook.is_injected() {
+                let already_seen = self.seen_items.contains(&unit.unit_id);
+                if already_seen {
+                    self.retry_pending_visibility_ops(unit.unit_id);
+                } else if !self.reset_departed_mask_collision(unit.unit_id, &current_item_ids) {
+                    continue;
+                }
+            }
+
+            if !needs_enrichment {
+                continue;
+            }
+            if let Some(scanned) = self.scan_unit(candidate.p_unit, &unit) {
+                self.process_scanned_item(scanned, &mut events);
             }
         }
 
@@ -1461,6 +1535,65 @@ impl DropScanner {
     /// Take the goblin-detection events produced by the latest `tick_items` call.
     pub fn drain_goblin_events(&mut self) -> Vec<GoblinDetectedEvent> {
         std::mem::take(&mut self.last_goblin_events)
+    }
+}
+
+#[cfg(all(test, target_os = "windows"))]
+mod tests {
+    use super::*;
+    use std::collections::{HashMap, HashSet};
+
+    use crate::scanner_state::{BfsItemCandidate, CachedFilterDecision};
+
+    #[test]
+    fn bfs_candidate_enrichment_skips_current_scan_and_current_cached_decision() {
+        let candidate = BfsItemCandidate {
+            unit_id: 42,
+            p_unit: 0x1000,
+            sub_x: 10,
+            sub_y: 20,
+        };
+        let mut current_item_ids = HashSet::new();
+        let mut decisions = HashMap::new();
+
+        assert!(should_enrich_bfs_candidate(
+            &candidate,
+            &current_item_ids,
+            &decisions,
+            7
+        ));
+
+        current_item_ids.insert(42);
+        assert!(!should_enrich_bfs_candidate(
+            &candidate,
+            &current_item_ids,
+            &decisions,
+            7
+        ));
+
+        current_item_ids.clear();
+        decisions.insert(
+            42,
+            CachedFilterDecision {
+                generation: 7,
+                visibility: Visibility::Show,
+                place_on_map: true,
+            },
+        );
+        assert!(!should_enrich_bfs_candidate(
+            &candidate,
+            &current_item_ids,
+            &decisions,
+            7
+        ));
+
+        decisions.get_mut(&42).unwrap().generation = 6;
+        assert!(should_enrich_bfs_candidate(
+            &candidate,
+            &current_item_ids,
+            &decisions,
+            7
+        ));
     }
 }
 

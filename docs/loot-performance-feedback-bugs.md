@@ -68,46 +68,17 @@ Diagnostics to add:
 - Marker-thread `filter.decide()` duration.
 - Tick duration percentiles for `tick_items()` and marker BFS.
 
-### P0: Items Can Become Seen Before They Notify
-
-Symptoms:
-
-- Loot is visible on the ground but never notifies.
-- Changing the notification filter can make old/current drops notify suddenly.
-
-Evidence in code:
-
-- `src-tauri/src/notifier.rs:717-720` skips items already present in `seen_items`.
-- `src-tauri/src/notifier.rs:777-778` inserts the item into `seen_items` after scan/enrichment.
-- `src-tauri/src/notifier.rs:515-588` applies filter decisions after scan/enrichment.
-
-Root-cause hypothesis:
-
-- An item can be marked as seen during a moment when the filter config is stale, missing, invalid, or has no matching `notify` rule. Later filter updates do not reconsider that item until a full cache clear happens.
-
-Proposed fixes:
-
-- Split item identity tracking from notification/decision tracking.
-- Track whether filter decision, hook bits, map marker, and notification were applied for each item.
-- Re-evaluate already-seen items when filter generation changes, without treating them as fresh drops for notification sounds.
-
-Diagnostics to add:
-
-- Per item: `unit_id`, `seed`, filter generation, whether it was already seen, whether notification was emitted.
-- Count of items skipped due to `seen_items` while filter generation changed.
-- Count of items seen with `notification = None`.
-
 ### P0: Loot Stops Updating Until Filter Cache Is Cleared
 
 Status after `ff4e2b5`:
 
 - Partially/directly addressed for the stale hook-mask path. The commit makes hook-mask cleanup independent from `seen_items`, retries failed hook-bit cleanup, preserves cleanup state across partial mask-clear failures, and clears stale opposing show/hide bits for current decisions.
-- Not fully closed as a whole bug class. Other possible causes listed below, especially stale `seen_items` notification/decision state and stale `recent_events`, still need separate investigation.
+- Not fully closed as a whole bug class. Other possible causes listed below, especially stale `recent_events`, still need separate investigation.
 
 Status after `3394422`:
 
 - Partially reduced risk from large-filter CPU stalls: expensive runtime regex compilation is removed from the hot path, and marker scanning no longer duplicates full filter matching.
-- Not fixed as a stale-state bug class. `seen_items`, `recent_events`, duplicate overlay events/sounds, and filter-change reprocessing semantics still need separate investigation.
+- Not fixed as a stale-state bug class. `recent_events`, duplicate overlay events/sounds, and filter-change reprocessing semantics still need separate investigation.
 
 Symptoms:
 
@@ -124,48 +95,49 @@ Evidence in code:
 
 Root-cause hypothesis:
 
-- `clear_cache()` resets `seen_items`, `recent_events`, `missed_ticks`, `seen_goblins`, and hook masks. If the app gets stuck because an item was marked seen without a valid decision, because hook masks contain stale state, or because `recent_events` no longer reflects the ground state, changing the filter temporarily fixes the session by forcing a full re-evaluation. The root bug is the stale/stuck state before the cache clear, not the re-evaluation itself.
+- `clear_cache()` resets `seen_items`, `recent_events`, `missed_ticks`, `seen_goblins`, and hook masks. If the app gets stuck because hook masks contain stale state or because `recent_events` no longer reflects the ground state, changing the filter temporarily fixes the session by forcing a full re-evaluation. The root bug is the stale/stuck state before the cache clear, not the re-evaluation itself.
 
 Proposed fixes:
 
-- Identify which cache/state becomes stale before the filter edit: `seen_items`, `recent_events`, hook masks, or filter config generation.
-- Re-evaluate decisions separately from fresh-drop detection so already-seen items can recover without requiring a full cache clear.
-- Keep explicit state for `decision_applied`, `hook_bits_applied`, `notification_emitted`, and `marker_applied` per item.
+- Identify which cache/state becomes stale before the filter edit: `recent_events`, hook masks, or filter config generation.
+- Keep explicit state for `hook_bits_applied` and `marker_applied` per item.
 - Preserve the intentional behavior that a user changing rules can reprocess visible ground loot according to the new rules.
 
 Diagnostics to add:
 
-- Log every filter generation bump with current `seen_items.len()` and `recent_events.len()`.
-- Before `clear_cache()`, log whether stuck items were present in `seen_items`, `recent_events`, and hook masks.
-- Log items skipped because they were already in `seen_items` while no notification/decision had been applied.
+- Log every filter generation bump with current `recent_events.len()` and hook-mask tracking counts.
+- Before `clear_cache()`, log whether stuck items were present in `recent_events` and hook masks.
 - Log hook mask state for items that become visible only after the filter edit.
 
 ### P1: Off-Screen Drops Can Miss Markers and Notifications
 
-Status after `3394422`:
+Status after BFS-candidate handoff:
 
-- Not fixed. Marker placement no longer depends on `recent_events` directly, but it still depends on the item scanner having enriched the item and cached a filter decision in `recent_filter_decisions`.
-- BFS-only discoveries are still not promoted into item enrichment candidates, so off-screen items that only marker BFS sees can still miss notifications and markers.
+- Likely fixed for filters with active `map` rules. Marker BFS now publishes raw item candidates (`unit_id`, `p_unit`, coordinates) into shared scanner state, and `DropScanner::tick_items()` consumes verified BFS-only candidates through the same enrichment/filter/notification path used by `pPaths` items.
+- Marker placement still depends on current-generation `recent_filter_decisions`, but BFS-only items can now create those decisions on the item-scanner side instead of being ignored forever.
+- The current-item lifecycle now includes verified BFS candidates, so cached events/decisions for BFS-visible items are not pruned solely because the `pPaths` pass missed them.
+- Remaining limitation: if no `map` rules are loaded, marker BFS is intentionally skipped for performance, so this handoff does not add a new off-screen discovery pass for notification-only filters.
+- Not fully proven by diagnostics yet. We still need live counters comparing BFS ids to `pPaths` ids to confirm frequency and coverage in real sessions.
 
 Symptoms:
 
 - Users suspect off-screen drops are the ones that fail to notify or receive markers.
 - Some drops are neither notified nor marked on the minimap.
 
-Evidence in code after `3394422`:
+Evidence in code:
 
-- `src-tauri/src/marker_scanner.rs:66` discovers item positions through BFS.
-- `src-tauri/src/marker_scanner.rs:130-142` only places a marker if the item has a current-generation cached decision in `recent_filter_decisions`.
-- `src-tauri/src/notifier.rs:684-689` prunes `recent_events` to items visible in the current item scan.
+- `src-tauri/src/marker_scanner.rs` discovers item positions through BFS and publishes `recent_bfs_items`.
+- `src-tauri/src/notifier.rs` consumes `recent_bfs_items`, validates that the candidate pointer still points at the same live item, and calls the same `scan_unit()` / filter-decision path used for `pPaths` discoveries.
+- `src-tauri/src/marker_scanner.rs` still places markers only if the item has a current-generation cached decision in `recent_filter_decisions`.
 
-Root-cause hypothesis:
+Root-cause hypothesis before the handoff:
 
 - The marker BFS can see item positions that the item scanner has not enriched. Since markers now depend on `recent_filter_decisions`, BFS-only items are still ignored. If the item scanner also does not see the item through `pPaths`, no notification is emitted either.
 
-Proposed fixes:
+Fix status:
 
-- Treat BFS-found unknown items as discovery candidates and enqueue them for enrichment in the item scanner.
-- Keep `recent_events` by TTL/stable identity instead of pruning only by current `pPaths` visibility.
+- Done: treat BFS-found unknown items as discovery candidates for the item scanner.
+- Done: retain current scanner state for verified BFS-visible items, not only `pPaths`-visible items.
 - Add instrumentation to compare BFS item ids with item-scan item ids.
 
 Diagnostics to add:
@@ -334,11 +306,10 @@ Diagnostics to add:
 
 1. Fix departed-item hook bit cleanup so stale hide/show/inspected bits cannot survive until `clear_cache()`.
 2. Fix large-filter matching cost: precompile patterns, add decision cache, and skip marker BFS when no rules need it.
-3. Fix `seen_items` semantics so filter changes re-evaluate decisions without depending on a full cache reset.
-4. Add diagnostics for stale seen items, hook mask cleanup, and filter generation changes.
-5. Investigate off-screen discovery by comparing BFS ids with item-scan ids.
-6. Stabilize automap marker reconciliation and reduce detach/attach churn.
-7. Add hook mask collision/stale-state diagnostics for long-session reports.
+3. Add diagnostics for hook mask cleanup and filter generation changes.
+4. Investigate off-screen discovery by comparing BFS ids with item-scan ids.
+5. Stabilize automap marker reconciliation and reduce detach/attach churn.
+6. Add hook mask collision/stale-state diagnostics for long-session reports.
 
 ## Minimum Diagnostic Mode
 
@@ -349,7 +320,6 @@ Useful metrics:
 - `tick_items.duration_ms`
 - `tick_items.items_current`
 - `tick_items.new_items`
-- `tick_items.skipped_seen`
 - `tick_items.events_emitted`
 - `filter.rules.len`
 - `filter.decide.total_ms`

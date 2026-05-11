@@ -33,6 +33,14 @@ impl CachedFilterDecision {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BfsItemCandidate {
+    pub unit_id: u32,
+    pub p_unit: u32,
+    pub sub_x: i32,
+    pub sub_y: i32,
+}
+
 pub struct SharedScannerState {
     pub ctx: Arc<D2Context>,
     pub injector: Arc<Mutex<D2Injector>>,
@@ -43,6 +51,9 @@ pub struct SharedScannerState {
     /// Runtime-only filter decisions keyed by `dwUnitId`; marker thread uses
     /// these instead of re-running the full filter.
     pub recent_filter_decisions: RwLock<HashMap<u32, CachedFilterDecision>>,
+    /// Raw item candidates found by marker BFS. The item scanner consumes this
+    /// as a secondary discovery source and remains the only enrichment path.
+    pub recent_bfs_items: RwLock<HashMap<u32, BfsItemCandidate>>,
     /// Items thread sets on game-entry; marker thread swap-clears at top
     /// of tick.
     pub clear_markers: AtomicBool,
@@ -64,6 +75,7 @@ impl SharedScannerState {
             filter_generation: AtomicU64::new(0),
             recent_events: RwLock::new(HashMap::new()),
             recent_filter_decisions: RwLock::new(HashMap::new()),
+            recent_bfs_items: RwLock::new(HashMap::new()),
             clear_markers: AtomicBool::new(false),
             stop: AtomicBool::new(false),
             dps_hook: Arc::new(DpsHook::new()),
