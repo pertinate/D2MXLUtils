@@ -473,11 +473,7 @@ impl LootFilterHook {
 
     /// Batch-clear show/hide/inspected bits for unit_ids that left the
     /// ground. One read+write per mask instead of per-id round-trips.
-    pub fn clear_unit_id_bits(
-        &self,
-        ctx: &D2Context,
-        unit_ids: &[u32],
-    ) -> Result<(), String> {
+    pub fn clear_unit_id_bits(&self, ctx: &D2Context, unit_ids: &[u32]) -> Result<(), String> {
         if unit_ids.is_empty() {
             return Ok(());
         }

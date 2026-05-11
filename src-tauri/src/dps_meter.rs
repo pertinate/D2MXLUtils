@@ -102,7 +102,11 @@ impl DpsMeter {
     ) {
         let is_kill = (delta_raw_with_flag & KILL_FLAG) != 0;
         let delta_raw = delta_raw_with_flag & DELTA_MASK;
-        let scale = if monster_level == 0 { 1u64 } else { monster_level as u64 };
+        let scale = if monster_level == 0 {
+            1u64
+        } else {
+            monster_level as u64
+        };
         let damage = ((delta_raw as u64)
             .saturating_mul(max_hp as u64)
             .saturating_mul(scale)
@@ -144,9 +148,7 @@ impl DpsMeter {
             peak: self.session_peak,
             total: self.session_total,
             kills: self.session_kills,
-            in_session: !self.events.is_empty()
-                || self.session_total > 0
-                || self.session_kills > 0,
+            in_session: !self.events.is_empty() || self.session_total > 0 || self.session_kills > 0,
         }
     }
 }

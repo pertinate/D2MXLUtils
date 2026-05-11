@@ -2,7 +2,9 @@
    CSS Reset - Modern, minimal
    ============================================= */
 
-*, *::before, *::after {
+*,
+*::before,
+*::after {
   box-sizing: border-box;
 }
 
@@ -35,12 +37,19 @@ html.overlay-mode body {
   background: var(--bg-overlay) !important;
 }
 
-img, picture, video, canvas, svg {
+img,
+picture,
+video,
+canvas,
+svg {
   display: block;
   max-width: 100%;
 }
 
-input, button, textarea, select {
+input,
+button,
+textarea,
+select {
   font: inherit;
   color: inherit;
 }
@@ -56,7 +65,8 @@ a {
   text-decoration: none;
 }
 
-ul, ol {
+ul,
+ol {
   list-style: none;
 }
 
@@ -102,7 +112,7 @@ ul, ol {
 
 input,
 textarea,
-[contenteditable="true"],
+[contenteditable='true'],
 .cm-editor,
 .cm-editor *,
 .syntax-help,
@@ -124,4 +134,3 @@ img {
   -webkit-user-drag: none;
   user-drag: none;
 }
-

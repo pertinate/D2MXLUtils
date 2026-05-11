@@ -9,7 +9,7 @@
     oninput?: (e: Event) => void;
     onchange?: (e: Event) => void;
   }
-  
+
   let {
     value = $bindable(''),
     placeholder = '',
@@ -18,7 +18,7 @@
     label = '',
     id = '',
     oninput,
-    onchange
+    onchange,
   }: Props = $props();
 </script>
 
@@ -26,16 +26,7 @@
   {#if label}
     <label class="label" for={id}>{label}</label>
   {/if}
-  <input
-    class="input"
-    {type}
-    {id}
-    {placeholder}
-    {disabled}
-    bind:value
-    oninput={oninput}
-    onchange={onchange}
-  />
+  <input class="input" {type} {id} {placeholder} {disabled} bind:value {oninput} {onchange} />
 </div>
 
 <style>
@@ -45,4 +36,3 @@
     gap: var(--space-1);
   }
 </style>
-

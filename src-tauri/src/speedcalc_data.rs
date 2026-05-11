@@ -85,8 +85,7 @@ pub fn save_to_cache(app_data_dir: &PathBuf, table: &SpeedcalcTable) -> Result<(
     let path = app_data_dir.join(CACHE_FILE);
     let json = serde_json::to_string(table)
         .map_err(|e| format!("Failed to serialize speedcalc data: {}", e))?;
-    fs::write(&path, json)
-        .map_err(|e| format!("Failed to write speedcalc cache: {}", e))?;
+    fs::write(&path, json).map_err(|e| format!("Failed to write speedcalc cache: {}", e))?;
     log_info(&format!(
         "speedcalc cache: wrote {} entries to {}",
         table.len(),

@@ -2,12 +2,12 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use serde::Serialize;
 
+use crate::injection::D2Injector;
+use crate::logger::info as log_info;
 use crate::offsets::{
     body_loc, d2common, data_tables, inventory, inventory_grid, item_types_txt, items_txt, unit,
 };
 use crate::process::D2Context;
-use crate::injection::D2Injector;
-use crate::logger::info as log_info;
 
 #[derive(Debug, Clone, Serialize, Default)]
 pub struct BreakpointData {
@@ -80,9 +80,7 @@ pub fn read_unit_breakpoint_data(
 
     let merc_type = if unit_type == 1 {
         let detected = classify_merc(class);
-        if detected.is_none()
-            && LAST_UNKNOWN_MERC_CLASS.swap(class, Ordering::Relaxed) != class
-        {
+        if detected.is_none() && LAST_UNKNOWN_MERC_CLASS.swap(class, Ordering::Relaxed) != class {
             log_info(&format!(
                 "breakpoints: unknown merc class id {} — please report",
                 class
@@ -132,7 +130,10 @@ fn read_equipped_weapon(ctx: &D2Context, p_unit: u32) -> (String, i32, Vec<Strin
         _ => return empty,
     };
 
-    let p_grids = match ctx.process.read_memory::<u32>(p_inventory + inventory::GRIDS) {
+    let p_grids = match ctx
+        .process
+        .read_memory::<u32>(p_inventory + inventory::GRIDS)
+    {
         Ok(p) if p != 0 => p as usize,
         _ => return empty,
     };
@@ -165,7 +166,10 @@ fn read_equipped_weapon(ctx: &D2Context, p_unit: u32) -> (String, i32, Vec<Strin
     (wclass, wsm, family_codes, file_index)
 }
 
-fn read_weapon_fields_from_items_txt(ctx: &D2Context, file_index: usize) -> (String, i32, Vec<String>) {
+fn read_weapon_fields_from_items_txt(
+    ctx: &D2Context,
+    file_index: usize,
+) -> (String, i32, Vec<String>) {
     let base_ptr = match ctx
         .process
         .read_memory::<u32>(ctx.d2_common + d2common::ITEMS_TXT)
@@ -267,9 +271,6 @@ pub(crate) fn resolve_item_type_chain(ctx: &D2Context, type_idx: u16) -> Vec<Str
 /// lowercase (e.g. ItemTypes codes) should `.to_lowercase()`.
 pub(crate) fn u32_to_packed_code(raw: u32) -> String {
     let bytes = raw.to_le_bytes();
-    let len = bytes
-        .iter()
-        .position(|&b| b == 0 || b == b' ')
-        .unwrap_or(4);
+    let len = bytes.iter().position(|&b| b == 0 || b == b' ').unwrap_or(4);
     String::from_utf8_lossy(&bytes[..len]).to_uppercase()
 }

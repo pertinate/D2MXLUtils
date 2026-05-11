@@ -1,6 +1,6 @@
 /**
  * Settings store for D2MXLUtils
- * 
+ *
  * Manages application settings with persistence through Tauri backend.
  * Uses Svelte 5 runes for reactive state management.
  */
@@ -97,7 +97,7 @@ export interface WindowState {
 
 /** Default hotkey (Ctrl+K) */
 const DEFAULT_HOTKEY: HotkeyConfig = {
-  keyCode: 0x4B,     // 'K' key
+  keyCode: 0x4b, // 'K' key
   modifiers: 0x0002, // MOD_CONTROL
   display: 'Ctrl+K',
 };
@@ -110,13 +110,13 @@ const DEFAULT_EDIT_OVERLAY_HOTKEY: HotkeyConfig = {
 };
 
 const DEFAULT_REVEAL_HIDDEN_HOTKEY: HotkeyConfig = {
-  keyCode: 0x5A,
+  keyCode: 0x5a,
   modifiers: 0,
   display: 'Z',
 };
 
 const DEFAULT_LOOT_HISTORY_HOTKEY: HotkeyConfig = {
-  keyCode: 0x4E, // 'N'
+  keyCode: 0x4e, // 'N'
   modifiers: 0,
   display: 'N',
 };
@@ -184,9 +184,9 @@ class SettingsStore {
   /** Load settings from backend */
   async load(): Promise<void> {
     if (this._isLoading) return;
-    
+
     this._isLoading = true;
-    
+
     try {
       const loaded = await invoke<AppSettings>('load_settings');
       this._settings = { ...DEFAULT_SETTINGS, ...loaded };
@@ -472,4 +472,3 @@ export const windowState = {
     }
   },
 };
-

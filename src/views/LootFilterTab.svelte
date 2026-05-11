@@ -1,89 +1,106 @@
 <script lang="ts">
-  import { onMount } from "svelte";
-  import { invoke } from "@tauri-apps/api/core";
-  import { RulesEditor, type ValidationResult } from "../editor";
-  import { ProfileSelector } from "../components";
-  import { settingsStore } from "../stores";
+  import { onMount } from 'svelte';
+  import { invoke } from '@tauri-apps/api/core';
+  import { RulesEditor, type ValidationResult } from '../editor';
+  import { ProfileSelector } from '../components';
+  import { settingsStore } from '../stores';
 
-  type SaveState = "saved" | "unsaved" | "invalid" | "saving" | "error";
+  type SaveState = 'saved' | 'unsaved' | 'invalid' | 'saving' | 'error';
 
-  let dslText = $state("");
-  let selectedProfile = $state(settingsStore.settings.activeProfile || "");
-  let validationStatus = $state<"idle" | "valid" | "error">("idle");
+  let dslText = $state('');
+  let selectedProfile = $state(settingsStore.settings.activeProfile || '');
+  let validationStatus = $state<'idle' | 'valid' | 'error'>('idle');
   let errorCount = $state(0);
   let ruleCount = $state(0);
   // Default-mode state derived from the parsed DSL (mirrors FilterConfig.hide_all).
   let hideAll = $state(false);
 
-  let saveState = $state<SaveState>("saved");
+  let saveState = $state<SaveState>('saved');
   let saveError = $state<string | null>(null);
-  let lastSavedText = $state("");
+  let lastSavedText = $state('');
   let inflightSave: Promise<void> | null = null;
 
   onMount(async () => {
     try {
-      await invoke("set_filter_enabled", { enabled: true });
+      await invoke('set_filter_enabled', { enabled: true });
     } catch (e) {
-      console.error("[LootFilterTab] Failed to enable filter:", e);
+      console.error('[LootFilterTab] Failed to enable filter:', e);
     }
   });
 
   async function syncFilterConfig() {
     try {
-      const config = await invoke<any>("parse_filter_dsl", { text: dslText });
+      const config = await invoke<any>('parse_filter_dsl', { text: dslText });
       hideAll = !!config.hide_all;
-      await invoke("set_filter_config", { config });
-      await invoke("set_filter_enabled", { enabled: true });
+      await invoke('set_filter_config', { config });
+      await invoke('set_filter_enabled', { enabled: true });
     } catch (e) {
-      console.error("[LootFilterTab] Failed to sync filter config:", e);
+      console.error('[LootFilterTab] Failed to sync filter config:', e);
     }
   }
 
   // Saves are dispatched from handleValidation, not here, so we piggy-back on
   // the linter's debounce and never race a stale validation verdict.
   function updateSaveState() {
-    if (saveState === "saving" || saveState === "error") return;
+    if (saveState === 'saving' || saveState === 'error') return;
     if (!selectedProfile) return;
-    if (dslText === lastSavedText) { saveState = "saved"; return; }
+    if (dslText === lastSavedText) {
+      saveState = 'saved';
+      return;
+    }
     // Treat "idle" optimistically — don't flash "fix errors" before the linter runs.
-    saveState = validationStatus === "error" ? "invalid" : "unsaved";
+    saveState = validationStatus === 'error' ? 'invalid' : 'unsaved';
   }
 
   async function doSave(profileName: string, text: string) {
     if (inflightSave) {
-      try { await inflightSave; } catch { /* ignore */ }
+      try {
+        await inflightSave;
+      } catch {
+        /* ignore */
+      }
     }
-    saveState = "saving";
+    saveState = 'saving';
     saveError = null;
     const p = (async () => {
       try {
-        await invoke("save_profile", { name: profileName, rulesText: text });
+        await invoke('save_profile', { name: profileName, rulesText: text });
         if (selectedProfile === profileName) {
           lastSavedText = text;
           if (dslText === text) {
-            saveState = "saved";
+            saveState = 'saved';
             await syncFilterConfig();
           } else {
             // Edits landed mid-save; next handleValidation pass will re-save.
-            saveState = validationStatus === "valid" ? "unsaved" : "invalid";
+            saveState = validationStatus === 'valid' ? 'unsaved' : 'invalid';
           }
         }
       } catch (e) {
         saveError = String(e);
-        if (selectedProfile === profileName) saveState = "error";
-        console.error("[LootFilterTab] auto-save failed:", e);
+        if (selectedProfile === profileName) saveState = 'error';
+        console.error('[LootFilterTab] auto-save failed:', e);
       }
     })();
     inflightSave = p;
-    try { await p; } finally { if (inflightSave === p) inflightSave = null; }
+    try {
+      await p;
+    } finally {
+      if (inflightSave === p) inflightSave = null;
+    }
   }
 
   function retrySave() {
-    if (saveState !== "error") return;
+    if (saveState !== 'error') return;
     saveError = null;
     if (!selectedProfile) return;
-    if (dslText === lastSavedText) { saveState = "saved"; return; }
-    if (validationStatus !== "valid") { saveState = "invalid"; return; }
+    if (dslText === lastSavedText) {
+      saveState = 'saved';
+      return;
+    }
+    if (validationStatus !== 'valid') {
+      saveState = 'invalid';
+      return;
+    }
     void doSave(selectedProfile, dslText);
   }
 
@@ -91,25 +108,25 @@
   // the sole kick-off point for auto-save — the linter's 500 ms debounce
   // doubles as the save debounce, so the save always sees a fresh verdict.
   function handleValidation(result: ValidationResult) {
-    const hardErrors = result.errors.filter((e) => e.severity === "error");
+    const hardErrors = result.errors.filter((e) => e.severity === 'error');
     if (hardErrors.length > 0) {
-      validationStatus = "error";
+      validationStatus = 'error';
       errorCount = hardErrors.length;
     } else {
-      validationStatus = "valid";
+      validationStatus = 'valid';
       ruleCount = result.ruleCount;
     }
 
     if (!selectedProfile) return;
     if (dslText === lastSavedText) {
-      if (saveState !== "saving" && saveState !== "error") saveState = "saved";
+      if (saveState !== 'saving' && saveState !== 'error') saveState = 'saved';
       return;
     }
-    if (saveState === "saving" || saveState === "error") return;
-    if (validationStatus === "valid") {
+    if (saveState === 'saving' || saveState === 'error') return;
+    if (validationStatus === 'valid') {
       void doSave(selectedProfile, dslText);
     } else {
-      saveState = "invalid";
+      saveState = 'invalid';
     }
   }
 
@@ -123,8 +140,14 @@
   async function handleSave(newValue: string) {
     dslText = newValue;
     if (!selectedProfile) return;
-    if (dslText === lastSavedText) { saveState = "saved"; return; }
-    if (validationStatus !== "valid") { saveState = "invalid"; return; }
+    if (dslText === lastSavedText) {
+      saveState = 'saved';
+      return;
+    }
+    if (validationStatus !== 'valid') {
+      saveState = 'invalid';
+      return;
+    }
     await doSave(selectedProfile, dslText);
   }
 
@@ -132,9 +155,9 @@
     dslText = rulesText;
     lastSavedText = rulesText;
     selectedProfile = name;
-    saveState = "saved";
+    saveState = 'saved';
     saveError = null;
-    validationStatus = "idle";
+    validationStatus = 'idle';
 
     if (name) {
       settingsStore.set('activeProfile', name);
@@ -152,11 +175,15 @@
 <section class="loot-filter-tab">
   <header class="tab-header">
     <div class="header-left">
-      <span class="status-badge" class:valid={validationStatus === "valid"} class:error={validationStatus === "error"}>
-        {#if validationStatus === "valid"}
-          ✓ {ruleCount} {ruleCount === 1 ? "rule" : "rules"}
-        {:else if validationStatus === "error"}
-          ✗ {errorCount} {errorCount === 1 ? "error" : "errors"}
+      <span
+        class="status-badge"
+        class:valid={validationStatus === 'valid'}
+        class:error={validationStatus === 'error'}
+      >
+        {#if validationStatus === 'valid'}
+          ✓ {ruleCount} {ruleCount === 1 ? 'rule' : 'rules'}
+        {:else if validationStatus === 'error'}
+          ✗ {errorCount} {errorCount === 1 ? 'error' : 'errors'}
         {:else}
           —
         {/if}
@@ -166,35 +193,35 @@
         class:hide={hideAll}
         title="Add 'hide default' at the top of the file to hide all unmatched items by default."
       >
-        Default: {hideAll ? "hide" : "show"} unmatched
+        Default: {hideAll ? 'hide' : 'show'} unmatched
       </span>
     </div>
 
     <div class="header-actions">
-      {#if saveState === "error"}
+      {#if saveState === 'error'}
         <button
           type="button"
           class="save-status error"
           onclick={retrySave}
-          title={saveError ?? "Save failed"}
+          title={saveError ?? 'Save failed'}
         >
           ⚠ Save failed — retry
         </button>
       {:else}
         <span
           class="save-status"
-          class:saved={saveState === "saved"}
-          class:unsaved={saveState === "unsaved"}
-          class:invalid={saveState === "invalid"}
-          class:saving={saveState === "saving"}
+          class:saved={saveState === 'saved'}
+          class:unsaved={saveState === 'unsaved'}
+          class:invalid={saveState === 'invalid'}
+          class:saving={saveState === 'saving'}
         >
-          {#if saveState === "saved"}
+          {#if saveState === 'saved'}
             ✓ Saved
-          {:else if saveState === "unsaved"}
+          {:else if saveState === 'unsaved'}
             ● Unsaved
-          {:else if saveState === "invalid"}
+          {:else if saveState === 'invalid'}
             ⚠ Unsaved — fix errors
-          {:else if saveState === "saving"}
+          {:else if saveState === 'saving'}
             … Saving
           {/if}
         </span>
@@ -222,15 +249,27 @@
       <summary>Syntax Reference</summary>
       <div class="help-content">
         <p>Rule format (all parts optional — rules are matched last-wins):</p>
-        <code>["name"] [quality] [tier] [eth] &#123;stat&#125; [color] [show|hide] [sound] [notify] [stat] [map]</code>
+        <code
+          >["name"] [quality] [tier] [eth] &#123;stat&#125; [color] [show|hide] [sound] [notify]
+          [stat] [map]</code
+        >
 
         <div class="help-columns">
           <div class="help-column">
             <h4>Quality</h4>
             <ul>
-              <li><span class="kw-quality">unique</span>, <span class="kw-quality">set</span>, <span class="kw-quality">rare</span></li>
-              <li><span class="kw-quality">magic</span>, <span class="kw-quality">craft</span>, <span class="kw-quality">honor</span></li>
-              <li><span class="kw-quality">normal</span>, <span class="kw-quality">low</span>, <span class="kw-quality">superior</span></li>
+              <li>
+                <span class="kw-quality">unique</span>, <span class="kw-quality">set</span>,
+                <span class="kw-quality">rare</span>
+              </li>
+              <li>
+                <span class="kw-quality">magic</span>, <span class="kw-quality">craft</span>,
+                <span class="kw-quality">honor</span>
+              </li>
+              <li>
+                <span class="kw-quality">normal</span>, <span class="kw-quality">low</span>,
+                <span class="kw-quality">superior</span>
+              </li>
             </ul>
           </div>
 
@@ -288,7 +327,10 @@
           <div class="help-column">
             <h4>Sounds</h4>
             <ul>
-              <li><span class="kw-notification">sound1</span> - <span class="kw-notification">sound7</span></li>
+              <li>
+                <span class="kw-notification">sound1</span> -
+                <span class="kw-notification">sound7</span>
+              </li>
               <li><span class="kw-notification">sound_none</span></li>
             </ul>
           </div>
@@ -296,11 +338,24 @@
 
         <p class="help-note">
           <strong><span class="kw-ethereal">eth</span></strong> — match ethereal items only<br />
-          <strong><span class="kw-notification">stat</span></strong> — include item stats in the notification<br />
-          <strong><span class="kw-notification">map</span></strong> — drop a red-cross marker on the in-game automap at the item's location (independent of <span class="kw-notification">notify</span>)<br />
-          <strong><span class="kw-stat">&#123;pattern&#125;</span></strong> — regex match on stat text<br />
-          <strong>Groups:</strong> <code class="inline-code">[<span class="kw-quality">unique</span> <span class="kw-c-gold">gold</span> <span class="kw-notification">notify</span>] &#123; <span class="kw-name">"Jordan"</span> <span class="kw-name">"Mara"</span> &#125;</code> — shared attributes for each rule inside<br />
-          <strong>Default mode:</strong> place <code class="inline-code">hide default</code> (or <code class="inline-code">show default</code>) on its own line at the top of the file. With <code class="inline-code">hide default</code>, only rules with <span class="kw-action">show</span> reveal items.
+          <strong><span class="kw-notification">stat</span></strong> — include item stats in the
+          notification<br />
+          <strong><span class="kw-notification">map</span></strong> — drop a red-cross marker on the
+          in-game automap at the item's location (independent of
+          <span class="kw-notification">notify</span>)<br />
+          <strong><span class="kw-stat">&#123;pattern&#125;</span></strong> — regex match on stat
+          text<br />
+          <strong>Groups:</strong>
+          <code class="inline-code"
+            >[<span class="kw-quality">unique</span> <span class="kw-c-gold">gold</span>
+            <span class="kw-notification">notify</span>] &#123;
+            <span class="kw-name">"Jordan"</span> <span class="kw-name">"Mara"</span> &#125;</code
+          >
+          — shared attributes for each rule inside<br />
+          <strong>Default mode:</strong> place <code class="inline-code">hide default</code> (or
+          <code class="inline-code">show default</code>) on its own line at the top of the file.
+          With <code class="inline-code">hide default</code>, only rules with
+          <span class="kw-action">show</span> reveal items.
         </p>
       </div>
     </details>
@@ -514,39 +569,111 @@
     padding: 2px 0;
   }
 
-  .kw-quality      { color: #888888; font-weight: 600; }
-  .kw-tier         { color: #bd93f9; font-weight: 600; }
-  .kw-ethereal     { color: #56d4b6; font-weight: 600; font-style: italic; }
-  .kw-action       { color: #e53935; font-weight: 600; }
-  .kw-notification { color: #c4b870; font-weight: 600; }
-  .kw-name         { color: #e09956; font-weight: 600; }
-  .kw-stat         { color: #7caa70; font-weight: 600; }
+  .kw-quality {
+    color: #888888;
+    font-weight: 600;
+  }
+  .kw-tier {
+    color: #bd93f9;
+    font-weight: 600;
+  }
+  .kw-ethereal {
+    color: #56d4b6;
+    font-weight: 600;
+    font-style: italic;
+  }
+  .kw-action {
+    color: #e53935;
+    font-weight: 600;
+  }
+  .kw-notification {
+    color: #c4b870;
+    font-weight: 600;
+  }
+  .kw-name {
+    color: #e09956;
+    font-weight: 600;
+  }
+  .kw-stat {
+    color: #7caa70;
+    font-weight: 600;
+  }
 
-  :global([data-theme="light"]) .kw-quality      { color: #555555; }
-  :global([data-theme="light"]) .kw-tier         { color: #7b1fa2; }
-  :global([data-theme="light"]) .kw-ethereal     { color: #00838f; }
-  :global([data-theme="light"]) .kw-action       { color: #d32f2f; }
-  :global([data-theme="light"]) .kw-notification { color: #ad1457; }
-  :global([data-theme="light"]) .kw-name         { color: #b35900; }
-  :global([data-theme="light"]) .kw-stat         { color: #116611; }
+  :global([data-theme='light']) .kw-quality {
+    color: #555555;
+  }
+  :global([data-theme='light']) .kw-tier {
+    color: #7b1fa2;
+  }
+  :global([data-theme='light']) .kw-ethereal {
+    color: #00838f;
+  }
+  :global([data-theme='light']) .kw-action {
+    color: #d32f2f;
+  }
+  :global([data-theme='light']) .kw-notification {
+    color: #ad1457;
+  }
+  :global([data-theme='light']) .kw-name {
+    color: #b35900;
+  }
+  :global([data-theme='light']) .kw-stat {
+    color: #116611;
+  }
 
   /* Literal color swatches: each color name is rendered in its own color
      so the reference doubles as a color palette. Values picked to stay
      readable on both the parchment light theme and the deep-black dark
      theme; black/white/grey use mid-tones instead of pure values for
      visibility on both backgrounds. */
-  .kw-c-gold   { color: #c7a84c; font-weight: 600; }
-  .kw-c-lime   { color: #4fbf2e; font-weight: 600; }
-  .kw-c-red    { color: #d83a3a; font-weight: 600; }
-  .kw-c-blue   { color: #4a6fe0; font-weight: 600; }
-  .kw-c-white  { color: #bfbfbf; font-weight: 600; }
-  .kw-c-yellow { color: #d6a517; font-weight: 600; }
-  .kw-c-orange { color: #d97518; font-weight: 600; }
-  .kw-c-pink   { color: #d56bb0; font-weight: 600; }
-  .kw-c-grey   { color: #8a8a8a; font-weight: 600; }
-  .kw-c-black  { color: #303030; font-weight: 600; }
-  .kw-c-purple { color: #8a5fb8; font-weight: 600; }
-  .kw-c-green  { color: #3d9050; font-weight: 600; }
+  .kw-c-gold {
+    color: #c7a84c;
+    font-weight: 600;
+  }
+  .kw-c-lime {
+    color: #4fbf2e;
+    font-weight: 600;
+  }
+  .kw-c-red {
+    color: #d83a3a;
+    font-weight: 600;
+  }
+  .kw-c-blue {
+    color: #4a6fe0;
+    font-weight: 600;
+  }
+  .kw-c-white {
+    color: #bfbfbf;
+    font-weight: 600;
+  }
+  .kw-c-yellow {
+    color: #d6a517;
+    font-weight: 600;
+  }
+  .kw-c-orange {
+    color: #d97518;
+    font-weight: 600;
+  }
+  .kw-c-pink {
+    color: #d56bb0;
+    font-weight: 600;
+  }
+  .kw-c-grey {
+    color: #8a8a8a;
+    font-weight: 600;
+  }
+  .kw-c-black {
+    color: #303030;
+    font-weight: 600;
+  }
+  .kw-c-purple {
+    color: #8a5fb8;
+    font-weight: 600;
+  }
+  .kw-c-green {
+    color: #3d9050;
+    font-weight: 600;
+  }
 
   .inline-code {
     display: inline;

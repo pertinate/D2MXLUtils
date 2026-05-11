@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { invoke } from "@tauri-apps/api/core";
-  import { Button } from "./index";
+  import { invoke } from '@tauri-apps/api/core';
+  import { Button } from './index';
 
   /** Profile info from backend */
   interface ProfileInfo {
@@ -18,20 +18,16 @@
     onload?: (name: string, rulesText: string) => void;
   }
 
-  let {
-    selectedProfile = $bindable(""),
-    onselect,
-    onload,
-  }: Props = $props();
+  let { selectedProfile = $bindable(''), onselect, onload }: Props = $props();
 
   let profiles = $state<ProfileInfo[]>([]);
   let isLoading = $state(false);
   let error = $state<string | null>(null);
-  
+
   // Dialog state
   let showDialog = $state(false);
-  let dialogMode = $state<"new" | "rename" | "duplicate">("new");
-  let dialogInput = $state("");
+  let dialogMode = $state<'new' | 'rename' | 'duplicate'>('new');
+  let dialogInput = $state('');
   let dialogError = $state<string | null>(null);
 
   // Dropdown state
@@ -45,19 +41,19 @@
   async function loadProfiles() {
     isLoading = true;
     error = null;
-    
+
     try {
-      profiles = await invoke<ProfileInfo[]>("list_profiles");
-      
+      profiles = await invoke<ProfileInfo[]>('list_profiles');
+
       if (selectedProfile) {
         // If profile is already selected (e.g. from settings), load its content
         // Verify it exists in the list first
-        const exists = profiles.some(p => p.name === selectedProfile);
+        const exists = profiles.some((p) => p.name === selectedProfile);
         if (exists) {
           await loadProfileContent(selectedProfile);
         } else {
           // Profile from settings doesn't exist anymore
-          selectedProfile = "";
+          selectedProfile = '';
           if (profiles.length > 0) {
             await selectProfile(profiles[0]);
           }
@@ -68,7 +64,7 @@
       }
     } catch (e) {
       error = String(e);
-      console.error("[ProfileSelector] Failed to load profiles:", e);
+      console.error('[ProfileSelector] Failed to load profiles:', e);
     } finally {
       isLoading = false;
     }
@@ -76,7 +72,7 @@
 
   async function loadProfileContent(name: string) {
     try {
-      const rulesText = await invoke<string>("load_profile", { name });
+      const rulesText = await invoke<string>('load_profile', { name });
       onload?.(name, rulesText);
     } catch (e) {
       console.error(`[ProfileSelector] Failed to load content for ${name}:`, e);
@@ -91,10 +87,10 @@
       // Just ensure content is loaded if it wasn't
       // But for now, let's force reload to be safe or just return
     }
-    
+
     isLoading = true;
     error = null;
-    
+
     try {
       await loadProfileContent(profile.name);
       selectedProfile = profile.name;
@@ -108,8 +104,8 @@
   }
 
   function openNewDialog() {
-    dialogMode = "new";
-    dialogInput = "";
+    dialogMode = 'new';
+    dialogInput = '';
     dialogError = null;
     showDialog = true;
     showDropdown = false;
@@ -117,7 +113,7 @@
 
   function openRenameDialog() {
     if (!selectedProfile) return;
-    dialogMode = "rename";
+    dialogMode = 'rename';
     dialogInput = selectedProfile;
     dialogError = null;
     showDialog = true;
@@ -126,7 +122,7 @@
 
   function openDuplicateDialog() {
     if (!selectedProfile) return;
-    dialogMode = "duplicate";
+    dialogMode = 'duplicate';
     dialogInput = `${selectedProfile} Copy`;
     dialogError = null;
     showDialog = true;
@@ -135,34 +131,34 @@
 
   async function handleDialogSubmit() {
     if (!dialogInput.trim()) {
-      dialogError = "Name cannot be empty";
+      dialogError = 'Name cannot be empty';
       return;
     }
-    
+
     isLoading = true;
     dialogError = null;
-    
+
     try {
-      if (dialogMode === "new") {
-        const profile = await invoke<ProfileInfo>("create_profile", { name: dialogInput });
+      if (dialogMode === 'new') {
+        const profile = await invoke<ProfileInfo>('create_profile', { name: dialogInput });
         await loadProfiles();
         await selectProfile(profile);
-      } else if (dialogMode === "rename") {
-        await invoke("rename_profile", { 
-          oldName: selectedProfile, 
-          newName: dialogInput 
+      } else if (dialogMode === 'rename') {
+        await invoke('rename_profile', {
+          oldName: selectedProfile,
+          newName: dialogInput,
         });
         selectedProfile = dialogInput;
         await loadProfiles();
-      } else if (dialogMode === "duplicate") {
-        const profile = await invoke<ProfileInfo>("duplicate_profile", { 
-          name: selectedProfile, 
-          newName: dialogInput 
+      } else if (dialogMode === 'duplicate') {
+        const profile = await invoke<ProfileInfo>('duplicate_profile', {
+          name: selectedProfile,
+          newName: dialogInput,
         });
         await loadProfiles();
         await selectProfile(profile);
       }
-      
+
       showDialog = false;
     } catch (e) {
       dialogError = String(e);
@@ -173,25 +169,25 @@
 
   async function deleteProfile() {
     if (!selectedProfile) return;
-    
+
     if (!confirm(`Delete profile "${selectedProfile}"?`)) return;
-    
+
     isLoading = true;
     error = null;
-    
+
     try {
-      await invoke("delete_profile", { name: selectedProfile });
-      selectedProfile = "";
+      await invoke('delete_profile', { name: selectedProfile });
+      selectedProfile = '';
       await loadProfiles();
-      
+
       // Select first available profile
       if (profiles.length > 0) {
         await selectProfile(profiles[0]);
       } else {
         onselect?.(null);
-        onload?.("", "# No profile selected\n");
+        onload?.('', '# No profile selected\n');
       }
-      
+
       showDropdown = false;
     } catch (e) {
       error = String(e);
@@ -201,19 +197,19 @@
   }
 
   function handleKeydown(e: KeyboardEvent) {
-    if (e.key === "Escape") {
+    if (e.key === 'Escape') {
       showDialog = false;
       showDropdown = false;
-    } else if (e.key === "Enter" && showDialog) {
+    } else if (e.key === 'Enter' && showDialog) {
       handleDialogSubmit();
     }
   }
 
   function handleDropdownBlur(e: FocusEvent) {
     // Close dropdown when focus leaves the container
-    const container = (e.currentTarget as HTMLElement);
+    const container = e.currentTarget as HTMLElement;
     const related = e.relatedTarget as HTMLElement | null;
-    
+
     if (!container.contains(related)) {
       showDropdown = false;
     }
@@ -225,14 +221,14 @@
 <div class="profile-selector" onfocusout={handleDropdownBlur}>
   <!-- Profile dropdown -->
   <div class="dropdown-container">
-    <button 
+    <button
       class="dropdown-trigger"
-      onclick={() => showDropdown = !showDropdown}
+      onclick={() => (showDropdown = !showDropdown)}
       disabled={isLoading}
     >
       <span class="profile-icon">📁</span>
       <span class="profile-name">
-        {selectedProfile || "No profile"}
+        {selectedProfile || 'No profile'}
       </span>
       <span class="dropdown-arrow" class:open={showDropdown}>▼</span>
     </button>
@@ -253,31 +249,19 @@
             </button>
           {/each}
         {/if}
-        
+
         <div class="dropdown-divider"></div>
-        
+
         <button class="dropdown-action" onclick={openNewDialog}>
           <span>➕</span> New Profile
         </button>
-        <button 
-          class="dropdown-action" 
-          onclick={openRenameDialog}
-          disabled={!selectedProfile}
-        >
+        <button class="dropdown-action" onclick={openRenameDialog} disabled={!selectedProfile}>
           <span>✏️</span> Rename
         </button>
-        <button 
-          class="dropdown-action" 
-          onclick={openDuplicateDialog}
-          disabled={!selectedProfile}
-        >
+        <button class="dropdown-action" onclick={openDuplicateDialog} disabled={!selectedProfile}>
           <span>📋</span> Duplicate
         </button>
-        <button 
-          class="dropdown-action danger" 
-          onclick={deleteProfile}
-          disabled={!selectedProfile}
-        >
+        <button class="dropdown-action danger" onclick={deleteProfile} disabled={!selectedProfile}>
           <span>🗑️</span> Delete
         </button>
       </div>
@@ -291,18 +275,18 @@
 
 <!-- Dialog overlay -->
 {#if showDialog}
-  <div class="dialog-overlay" onclick={() => showDialog = false}>
+  <div class="dialog-overlay" onclick={() => (showDialog = false)}>
     <div class="dialog" onclick={(e) => e.stopPropagation()}>
       <h3 class="dialog-title">
-        {#if dialogMode === "new"}
+        {#if dialogMode === 'new'}
           New Profile
-        {:else if dialogMode === "rename"}
+        {:else if dialogMode === 'rename'}
           Rename Profile
         {:else}
           Duplicate Profile
         {/if}
       </h3>
-      
+
       <input
         class="dialog-input"
         type="text"
@@ -310,22 +294,26 @@
         bind:value={dialogInput}
         autofocus
       />
-      
+
       {#if dialogError}
         <p class="dialog-error">{dialogError}</p>
       {/if}
-      
+
       <div class="dialog-actions">
-        <Button variant="ghost" size="sm" onclick={() => showDialog = false}>
-          Cancel
-        </Button>
-        <Button 
-          variant="primary" 
-          size="sm" 
+        <Button variant="ghost" size="sm" onclick={() => (showDialog = false)}>Cancel</Button>
+        <Button
+          variant="primary"
+          size="sm"
           onclick={handleDialogSubmit}
           disabled={isLoading || !dialogInput.trim()}
         >
-          {isLoading ? "..." : dialogMode === "new" ? "Create" : dialogMode === "rename" ? "Rename" : "Duplicate"}
+          {isLoading
+            ? '...'
+            : dialogMode === 'new'
+              ? 'Create'
+              : dialogMode === 'rename'
+                ? 'Rename'
+                : 'Duplicate'}
         </Button>
       </div>
     </div>

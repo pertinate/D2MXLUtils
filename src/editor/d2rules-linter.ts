@@ -5,8 +5,8 @@
  *
  * @module d2rules-linter
  */
-import { linter, type Diagnostic } from "@codemirror/lint";
-import { invoke } from "@tauri-apps/api/core";
+import { linter, type Diagnostic } from '@codemirror/lint';
+import { invoke } from '@tauri-apps/api/core';
 import { settingsStore } from '../stores';
 
 /**
@@ -16,7 +16,7 @@ export interface ValidationError {
   line: number;
   column: number;
   message: string;
-  severity: "error" | "warning" | "info";
+  severity: 'error' | 'warning' | 'info';
 }
 
 /**
@@ -67,10 +67,7 @@ function scanSoundSlotRefs(doc: import('@codemirror/state').Text): Diagnostic[] 
  * @param onResult - Optional callback called after each validation with results
  * @returns Linter extension for CodeMirror
  */
-export function d2rulesLinter(
-  debounceMs = 1000,
-  onResult?: (result: ValidationResult) => void
-) {
+export function d2rulesLinter(debounceMs = 1000, onResult?: (result: ValidationResult) => void) {
   return linter(
     async (view) => {
       const doc = view.state.doc;
@@ -84,7 +81,7 @@ export function d2rulesLinter(
 
       try {
         // Call Tauri backend for validation
-        const errors: ValidationError[] = await invoke("validate_filter_dsl", {
+        const errors: ValidationError[] = await invoke('validate_filter_dsl', {
           text,
         });
 
@@ -92,10 +89,7 @@ export function d2rulesLinter(
         let ruleCount = 0;
         if (errors.length === 0) {
           try {
-            const config = await invoke<{ rules: unknown[] }>(
-              "parse_filter_dsl",
-              { text }
-            );
+            const config = await invoke<{ rules: unknown[] }>('parse_filter_dsl', { text });
             ruleCount = config.rules?.length ?? 0;
           } catch {
             // Parse failed - shouldn't happen if validation passed, but handle gracefully
@@ -116,19 +110,19 @@ export function d2rulesLinter(
             to: line.to,
             severity: err.severity,
             message: err.message,
-            source: "d2rules",
+            source: 'd2rules',
           };
         });
         return [...backendDiagnostics, ...scanSoundSlotRefs(doc)];
       } catch (e) {
         // Log error but don't crash the editor
-        console.error("[d2rules-linter] Validation error:", e);
+        console.error('[d2rules-linter] Validation error:', e);
         onResult?.({ errors: [], ruleCount: 0 });
         return [];
       }
     },
     {
       delay: debounceMs,
-    }
+    },
   );
 }

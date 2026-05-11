@@ -252,20 +252,44 @@
 }
 
 /* Utility classes */
-.text-muted { color: var(--text-muted); }
-.text-secondary { color: var(--text-secondary); }
-.text-primary { color: var(--text-primary); }
-.text-accent { color: var(--accent-primary); }
-.text-success { color: var(--status-success-text); }
-.text-warning { color: var(--status-warning-text); }
-.text-error { color: var(--status-error-text); }
+.text-muted {
+  color: var(--text-muted);
+}
+.text-secondary {
+  color: var(--text-secondary);
+}
+.text-primary {
+  color: var(--text-primary);
+}
+.text-accent {
+  color: var(--accent-primary);
+}
+.text-success {
+  color: var(--status-success-text);
+}
+.text-warning {
+  color: var(--status-warning-text);
+}
+.text-error {
+  color: var(--status-error-text);
+}
 
-.font-mono { font-family: var(--font-mono); }
-.font-sans { font-family: var(--font-sans); }
+.font-mono {
+  font-family: var(--font-mono);
+}
+.font-sans {
+  font-family: var(--font-sans);
+}
 
-.bg-primary { background: var(--bg-primary); }
-.bg-secondary { background: var(--bg-secondary); }
-.bg-tertiary { background: var(--bg-tertiary); }
+.bg-primary {
+  background: var(--bg-primary);
+}
+.bg-secondary {
+  background: var(--bg-secondary);
+}
+.bg-tertiary {
+  background: var(--bg-tertiary);
+}
 
 /* Layout helpers for settings / placeholder sections */
 .tab-content {
@@ -358,4 +382,3 @@
   margin: 0;
   line-height: 1.6;
 }
-

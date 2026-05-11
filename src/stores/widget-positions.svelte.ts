@@ -10,25 +10,15 @@
  */
 
 import { settingsStore } from './settings.svelte';
-import {
-  OVERLAY_WIDGETS,
-  type OverlayWidgetId,
-} from '../lib/overlay-widgets';
+import { OVERLAY_WIDGETS, type OverlayWidgetId } from '../lib/overlay-widgets';
 
 const SPECS = new Map(OVERLAY_WIDGETS.map((w) => [w.id, w]));
 
 export function widgetPosition(id: OverlayWidgetId): { x: number; y: number } {
-  return (
-    settingsStore.settings.widgetPositions?.[id]
-    ?? SPECS.get(id)!.defaultPosition
-  );
+  return settingsStore.settings.widgetPositions?.[id] ?? SPECS.get(id)!.defaultPosition;
 }
 
-export function setWidgetPosition(
-  id: OverlayWidgetId,
-  x: number,
-  y: number,
-): void {
+export function setWidgetPosition(id: OverlayWidgetId, x: number, y: number): void {
   settingsStore.set('widgetPositions', {
     ...settingsStore.settings.widgetPositions,
     [id]: { x, y },

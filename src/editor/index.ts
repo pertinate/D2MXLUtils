@@ -7,10 +7,10 @@
  */
 
 // Main editor component
-export { default as RulesEditor } from "./RulesEditor.svelte";
+export { default as RulesEditor } from './RulesEditor.svelte';
 
 // Language support
-export { d2rules, d2rulesLanguage } from "./d2rules-language";
+export { d2rules, d2rulesLanguage } from './d2rules-language';
 
 // Themes
 export {
@@ -21,14 +21,10 @@ export {
   autocompleteTheme,
   getDarkThemeExtensions,
   getLightThemeExtensions,
-} from "./d2rules-theme";
+} from './d2rules-theme';
 
 // Linting
-export {
-  d2rulesLinter,
-  type ValidationError,
-  type ValidationResult,
-} from "./d2rules-linter";
+export { d2rulesLinter, type ValidationError, type ValidationResult } from './d2rules-linter';
 
 // Autocomplete
-export { d2rulesAutocomplete } from "./d2rules-autocomplete";
+export { d2rulesAutocomplete } from './d2rules-autocomplete';

@@ -1,18 +1,16 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
   import { OVERLAY_WIDGETS } from '../lib/overlay-widgets';
-  import {
-    widgetPosition,
-    setWidgetPosition,
-  } from '../stores/widget-positions.svelte';
+  import { widgetPosition, setWidgetPosition } from '../stores/widget-positions.svelte';
   import DragGhost from './DragGhost.svelte';
 
   // Snapshot taken on mount; mutated during drag for smooth visuals;
   // committed on mouseup so settings only see one write per drag.
   let pending = $state(
-    Object.fromEntries(
-      OVERLAY_WIDGETS.map((w) => [w.id, { ...widgetPosition(w.id) }]),
-    ) as Record<string, { x: number; y: number }>,
+    Object.fromEntries(OVERLAY_WIDGETS.map((w) => [w.id, { ...widgetPosition(w.id) }])) as Record<
+      string,
+      { x: number; y: number }
+    >,
   );
 
   // User releases the edit chord mid-drag: the edit window unmounts us before

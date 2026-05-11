@@ -224,7 +224,7 @@ pub fn build(p: &BuildParams) -> TrampolineBlob {
     labels.insert("real_restore", buf.len());
     buf.push(0x61); // popad
     buf.push(0x9D); // popfd
-    // Saved 5 bytes from Ord10887: 8B 44 24 0C 53
+                    // Saved 5 bytes from Ord10887: 8B 44 24 0C 53
     buf.extend_from_slice(&[0x8B, 0x44, 0x24, 0x0C, 0x53]);
     buf.push(0xE9); // jmp rel32 → Ord10887+5
     let resume_jmp_at = buf.len();
@@ -257,7 +257,7 @@ pub fn build(p: &BuildParams) -> TrampolineBlob {
     buf.extend_from_slice(&[0x8B, 0x0D]); // mov ecx, [imm32]
     buf.extend_from_slice(&(p.difficulty_addr as u32).to_le_bytes());
     buf.extend_from_slice(&[0xD1, 0xE1]); // shl ecx, 1
-    // add ecx, 0xB0   (use imm32 form because 0xB0 sign-extends to negative as imm8)
+                                          // add ecx, 0xB0   (use imm32 form because 0xB0 sign-extends to negative as imm8)
     buf.extend_from_slice(&[0x81, 0xC1, 0xB0, 0x00, 0x00, 0x00]);
 
     // pMonStatsRecord → esi; max_hp = u16 [esi + ecx], stashed at [ebp-0x10].
@@ -299,11 +299,11 @@ pub fn build(p: &BuildParams) -> TrampolineBlob {
     buf.extend_from_slice(&[0x89, 0x7A, 0x04]); // mov [edx+4], edi   ; unit_id
     buf.extend_from_slice(&[0x8B, 0x75, 0x10]); // mov esi, [ebp+0x10] ; delta_raw
     buf.extend_from_slice(&[0x89, 0x72, 0x08]); // mov [edx+8], esi   ; delta_raw
-    // Pack max_hp (u16 low) | (mLvl u16 high) into a single dword write.
+                                                // Pack max_hp (u16 low) | (mLvl u16 high) into a single dword write.
     buf.extend_from_slice(&[0x8B, 0x75, 0xF0]); // mov esi, [ebp-0x10] ; max_hp (low 16)
     buf.extend_from_slice(&[0x8B, 0x7D, 0x14]); // mov edi, [ebp+0x14] ; mLvl (4th arg)
     buf.extend_from_slice(&[0xC1, 0xE7, 0x10]); // shl edi, 0x10       ; mLvl << 16
-    buf.extend_from_slice(&[0x0B, 0xF7]);       // or  esi, edi        ; combined
+    buf.extend_from_slice(&[0x0B, 0xF7]); // or  esi, edi        ; combined
     buf.extend_from_slice(&[0x89, 0x72, 0x0C]); // mov [edx+0xC], esi  ; max_hp | (mLvl<<16)
 
     // Epilogue
@@ -339,8 +339,7 @@ pub fn build(p: &BuildParams) -> TrampolineBlob {
     // ──────────────────────────────────────────────────────────────────
     //  Patch the helper's ring-address load.
     // ──────────────────────────────────────────────────────────────────
-    buf[ring_addr_imm_at..ring_addr_imm_at + 4]
-        .copy_from_slice(&(ring_addr as u32).to_le_bytes());
+    buf[ring_addr_imm_at..ring_addr_imm_at + 4].copy_from_slice(&(ring_addr as u32).to_le_bytes());
 
     // ──────────────────────────────────────────────────────────────────
     //  Resolve fixups
@@ -394,11 +393,7 @@ fn emit_short_jcc(
     fixups.push((buf.len() - 1, label));
 }
 
-fn emit_short_jmp(
-    buf: &mut Vec<u8>,
-    fixups: &mut Vec<(usize, &'static str)>,
-    label: &'static str,
-) {
+fn emit_short_jmp(buf: &mut Vec<u8>, fixups: &mut Vec<(usize, &'static str)>, label: &'static str) {
     emit_short_jcc(buf, fixups, 0xEB, label);
 }
 
@@ -420,7 +415,11 @@ mod tests {
     fn build_produces_substantial_bytecode() {
         let blob = build(&sample_params());
         // Trampoline + helper alone should be > 256 bytes; ring adds 16 KB.
-        assert!(blob.bytes.len() > 0x100, "blob too small: {} bytes", blob.bytes.len());
+        assert!(
+            blob.bytes.len() > 0x100,
+            "blob too small: {} bytes",
+            blob.bytes.len()
+        );
         assert!(blob.helper_offset > blob.trampoline_offset);
         assert!(blob.ring_offset > blob.helper_offset);
         // Ring layout: header(0x10) + 1024*16 = 16400 bytes.
@@ -465,7 +464,10 @@ mod tests {
         let blob = build(&p);
         // First `E8 rel32` in the trampoline calls the helper.
         let body = &blob.bytes[..blob.helper_offset];
-        let pos = body.windows(5).position(|w| w[0] == 0xE8).expect("expected E8 call in trampoline");
+        let pos = body
+            .windows(5)
+            .position(|w| w[0] == 0xE8)
+            .expect("expected E8 call in trampoline");
         let rel = i32::from_le_bytes(blob.bytes[pos + 1..pos + 5].try_into().unwrap());
         let from = p.blob_base + pos + 5;
         let abs = (from as i64 + rel as i64) as usize;

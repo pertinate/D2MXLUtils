@@ -13,9 +13,7 @@ export function formatDps(value: number): string {
   }
 
   const str =
-    scaled >= 100 ? scaled.toFixed(0) :
-    scaled >= 10  ? scaled.toFixed(1) :
-                    scaled.toFixed(2);
+    scaled >= 100 ? scaled.toFixed(0) : scaled >= 10 ? scaled.toFixed(1) : scaled.toFixed(2);
 
   return str + units[unitIdx];
 }

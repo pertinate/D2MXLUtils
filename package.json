@@ -8,7 +8,12 @@
     "dev": "vite",
     "build": "svelte-check --tsconfig ./tsconfig.json && vite build",
     "check": "svelte-check --tsconfig ./tsconfig.json",
+    "format": "prettier --write \"src/**/*.{svelte,ts,js,css}\"",
+    "format:check": "prettier --check \"src/**/*.{svelte,ts,js,css}\"",
+    "format:rust": "cargo fmt --manifest-path src-tauri/Cargo.toml --all",
+    "format:all": "pnpm format && pnpm format:rust",
     "preview": "vite preview",
+    "prepare": "husky",
     "tauri": "tauri",
     "version": "node scripts/sync-version.mjs"
   },
@@ -28,6 +33,8 @@
     "@sveltejs/vite-plugin-svelte": "^6.2.4",
     "@tauri-apps/cli": "2.9.6",
     "husky": "^9.1.7",
+    "prettier": "^3.8.3",
+    "prettier-plugin-svelte": "^3.5.1",
     "svelte-check": "^4.4.6",
     "typescript": "^5.9.3",
     "vite": "^7.3.2"

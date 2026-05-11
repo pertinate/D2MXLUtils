@@ -768,10 +768,7 @@ impl DropScanner {
             // than the unit's stat list (e.g. Cycles), read the bonus
             // description from the items.txt string-table ID at +0xB6.
             if scanned.stats.is_none() {
-                if let Some(text) = self.read_item_desc_from_txt(
-                    &injector,
-                    scanned.class,
-                ) {
+                if let Some(text) = self.read_item_desc_from_txt(&injector, scanned.class) {
                     scanned.stats = Some(text);
                 }
             }

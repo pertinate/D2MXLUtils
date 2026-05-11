@@ -13,12 +13,7 @@
   let killsStr = $derived(snap.inSession ? snap.kills.toString() : '—');
 </script>
 
-<div
-  class="dps-meter"
-  class:in-session={snap.inSession}
-  style:left="{pos.x}%"
-  style:top="{pos.y}%"
->
+<div class="dps-meter" class:in-session={snap.inSession} style:left="{pos.x}%" style:top="{pos.y}%">
   <div class="row"><span class="label">DPS</span><span class="value">{dpsStr}</span></div>
   <div class="row"><span class="label">Kills/min</span><span class="value">{kpmStr}</span></div>
   <div class="row"><span class="label">Peak</span><span class="value">{peakStr}</span></div>

@@ -39,4 +39,4 @@ export const OVERLAY_WIDGETS = [
   },
 ] as const satisfies readonly OverlayWidgetSpec[];
 
-export type OverlayWidgetId = typeof OVERLAY_WIDGETS[number]['id'];
+export type OverlayWidgetId = (typeof OVERLAY_WIDGETS)[number]['id'];

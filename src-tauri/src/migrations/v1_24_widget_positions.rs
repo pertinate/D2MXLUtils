@@ -30,10 +30,8 @@ pub fn apply(raw: &Value, s: &mut AppSettings) -> bool {
     }
     let x = legacy.notification_x.unwrap_or(1.0);
     let y = legacy.notification_y.unwrap_or(1.0);
-    s.widget_positions.insert(
-        "notifications".into(),
-        WidgetPosition { x, y },
-    );
+    s.widget_positions
+        .insert("notifications".into(), WidgetPosition { x, y });
     true
 }
 

@@ -55,7 +55,10 @@ pub fn load_from_cache(app: &AppHandle) -> Option<WeaponBaseCatalog> {
 
     let path = app_data.join(CACHE_FILE);
     if !path.exists() {
-        log_info(&format!("weapon-bases cache: no file at {}", path.display()));
+        log_info(&format!(
+            "weapon-bases cache: no file at {}",
+            path.display()
+        ));
         return None;
     }
 

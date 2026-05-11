@@ -55,6 +55,19 @@ The backend handles all low-level Windows operations:
 
 ## Important Conventions
 
+### Formatting
+
+Do not run repository-wide auto-format write commands unless the user explicitly
+asks for formatting in the current turn. This includes `cargo fmt`,
+`pnpm format`, `prettier --write`, and equivalent formatter write modes.
+
+Formatter check commands are allowed when verifying work, for example
+`cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check` and
+`pnpm format:check`.
+
+Formatting is enforced by `.husky/pre-commit`, which runs `pnpm format:all`.
+Do not bypass the hook unless the user explicitly asks.
+
 ### Git Commits
 
 **Never run `git commit` without an explicit request from the user in the current turn.**

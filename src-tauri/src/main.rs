@@ -1132,12 +1132,10 @@ fn sync_overlay_with_game_impl(app: &AppHandle) -> Result<(), String> {
         return Err("Diablo II window handle is null".to_string());
     }
 
-    let overlay_window = app
-        .get_webview_window(visual_spec.label)
-        .ok_or(format!(
-            "Overlay window with label '{}' not found",
-            visual_spec.label
-        ))?;
+    let overlay_window = app.get_webview_window(visual_spec.label).ok_or(format!(
+        "Overlay window with label '{}' not found",
+        visual_spec.label
+    ))?;
 
     let title_wide: Vec<u16> = OsStr::new(visual_spec.title)
         .encode_wide()
@@ -1191,9 +1189,7 @@ fn sync_overlay_with_game_impl(app: &AppHandle) -> Result<(), String> {
             || OVERLAY_LAST_EDIT_MODE_APPLIED.load(Ordering::SeqCst) != edit_active_i8;
         if needs_style {
             let ex_style = GetWindowLongW(hwnd_overlay, GWL_EXSTYLE);
-            let mut new_ex = ex_style
-                | WS_EX_TOOLWINDOW.0 as i32
-                | WS_EX_NOACTIVATE.0 as i32;
+            let mut new_ex = ex_style | WS_EX_TOOLWINDOW.0 as i32 | WS_EX_NOACTIVATE.0 as i32;
             if mode_spec.layered {
                 new_ex |= WS_EX_LAYERED.0 as i32;
             } else {

@@ -28,7 +28,13 @@ export type UpdaterState =
   | { kind: 'available'; latest: string; current: string; assetUrl: string }
   | { kind: 'downloading'; latest: string; downloaded: number }
   | { kind: 'ready'; latest: string }
-  | { kind: 'error'; phase: 'check' | 'install'; message: string; latest?: string; downloadUrl?: string };
+  | {
+      kind: 'error';
+      phase: 'check' | 'install';
+      message: string;
+      latest?: string;
+      downloadUrl?: string;
+    };
 
 interface CheckResult {
   status: 'up_to_date' | 'available';

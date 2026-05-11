@@ -40,11 +40,7 @@
     quality: 'Rare',
     name: 'Rune Turn',
     base_name: 'Sacred Ring',
-    stats: [
-      '+15% Faster Cast Rate',
-      '+1 to All Skills',
-      '+25 to Mana',
-    ].join('\n'),
+    stats: ['+15% Faster Cast Rate', '+1 to All Skills', '+25 to Mana'].join('\n'),
     is_ethereal: false,
     is_identified: true,
     unique_kind: null,
@@ -80,9 +76,7 @@
 <section class="tab-content">
   <div class="settings-section">
     <h2 class="section-title">Notification Settings</h2>
-    <p class="section-description">
-      Customize how item drop notifications appear in the overlay.
-    </p>
+    <p class="section-description">Customize how item drop notifications appear in the overlay.</p>
 
     <div class="settings-grid">
       <!-- Duration -->
@@ -153,16 +147,12 @@
         <div class="setting-info">
           <label class="setting-label" for="compact-name">Compact name</label>
           <span class="setting-hint">
-            Hide unique/set name line for Set/TU/SU/SSU/SSSU drops, show only base type.
-            Rules with the <code>stat</code> flag ignore this.
+            Hide unique/set name line for Set/TU/SU/SSU/SSSU drops, show only base type. Rules with
+            the <code>stat</code> flag ignore this.
           </span>
         </div>
         <div class="setting-control">
-          <Toggle
-            id="compact-name"
-            checked={compactName}
-            onchange={setCompactName}
-          />
+          <Toggle id="compact-name" checked={compactName} onchange={setCompactName} />
         </div>
       </div>
     </div>
@@ -172,24 +162,9 @@
   <div class="preview-section">
     <h3 class="preview-title">Preview</h3>
     <div class="preview-container">
-      <Notification
-        item={previewPlain}
-        {fontSize}
-        {opacity}
-        {compactName}
-      />
-      <Notification
-        item={previewWithStats}
-        {fontSize}
-        {opacity}
-        {compactName}
-      />
-      <Notification
-        item={previewWithMatch}
-        {fontSize}
-        {opacity}
-        {compactName}
-      />
+      <Notification item={previewPlain} {fontSize} {opacity} {compactName} />
+      <Notification item={previewWithStats} {fontSize} {opacity} {compactName} />
+      <Notification item={previewWithMatch} {fontSize} {opacity} {compactName} />
     </div>
   </div>
 </section>

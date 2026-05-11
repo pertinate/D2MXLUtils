@@ -350,13 +350,28 @@ pub fn open_process_by_window_class(class_name: &str) -> Result<ProcessHandle, S
 /// ```
 #[cfg(target_os = "windows")]
 const ALWAYS_SHOW_ITEMS_GETTER_PATTERN: &[Option<u8>] = &[
-    Some(0xA1), None, None, None, None,
-    Some(0x85), Some(0xC0),
-    Some(0x75), None,
+    Some(0xA1),
+    None,
+    None,
+    None,
+    None,
+    Some(0x85),
+    Some(0xC0),
+    Some(0x75),
+    None,
     Some(0x56),
-    Some(0x68), Some(0xD0), Some(0x00), Some(0x00), Some(0x00),
-    Some(0xE8), None, None, None, None,
-    Some(0x8B), Some(0xF0),
+    Some(0x68),
+    Some(0xD0),
+    Some(0x00),
+    Some(0x00),
+    Some(0x00),
+    Some(0xE8),
+    None,
+    None,
+    None,
+    None,
+    Some(0x8B),
+    Some(0xF0),
 ];
 
 /// `None` on no match, ambiguous match (>1 hit = signature too loose to trust),
@@ -367,12 +382,8 @@ fn resolve_always_show_items_ptr_rva(
     base: usize,
     size: usize,
 ) -> Option<usize> {
-    let first = process.scan_pattern_wildcard(
-        base,
-        size,
-        ALWAYS_SHOW_ITEMS_GETTER_PATTERN,
-        base,
-    )?;
+    let first =
+        process.scan_pattern_wildcard(base, size, ALWAYS_SHOW_ITEMS_GETTER_PATTERN, base)?;
     if process
         .scan_pattern_wildcard(base, size, ALWAYS_SHOW_ITEMS_GETTER_PATTERN, first + 1)
         .is_some()
@@ -409,9 +420,7 @@ impl D2Context {
         let d2_common = process.get_module_base("D2Common.dll")?;
         let d2_win = process.get_module_base("D2Win.dll")?;
         let d2_lang = process.get_module_base("D2Lang.dll")?;
-        let (d2_sigma, d2_sigma_size) = process
-            .get_module_info("D2Sigma.dll")
-            .unwrap_or((0, 0));
+        let (d2_sigma, d2_sigma_size) = process.get_module_info("D2Sigma.dll").unwrap_or((0, 0));
 
         let always_show_items_ptr_rva = if d2_sigma != 0 && d2_sigma_size != 0 {
             let rva = resolve_always_show_items_ptr_rva(&process, d2_sigma, d2_sigma_size);

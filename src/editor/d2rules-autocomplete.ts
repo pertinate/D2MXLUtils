@@ -2,8 +2,8 @@ import {
   autocompletion,
   type CompletionContext,
   type CompletionResult,
-} from "@codemirror/autocomplete";
-import type { AutocompleteOption } from "../stores/items-dictionary.svelte";
+} from '@codemirror/autocomplete';
+import type { AutocompleteOption } from '../stores/items-dictionary.svelte';
 
 function isInsideQuotedString(line: string, offset: number): boolean {
   let inString = false;
@@ -18,7 +18,7 @@ function isInsideQuotedString(line: string, offset: number): boolean {
         escaped = false;
         continue;
       }
-      if (c === "\\") {
+      if (c === '\\') {
         escaped = true;
         continue;
       }
@@ -26,7 +26,7 @@ function isInsideQuotedString(line: string, offset: number): boolean {
         inString = false;
       }
     } else {
-      if (c === "#") {
+      if (c === '#') {
         inComment = true;
       } else if (c === '"') {
         inString = true;

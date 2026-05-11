@@ -6,15 +6,15 @@
     id?: string;
     onchange?: (checked: boolean) => void;
   }
-  
+
   let {
     checked = $bindable(false),
     disabled = false,
     label = '',
     id = '',
-    onchange
+    onchange,
   }: Props = $props();
-  
+
   function handleChange(e: Event) {
     const target = e.target as HTMLInputElement;
     checked = target.checked;
@@ -45,4 +45,3 @@
     cursor: not-allowed;
   }
 </style>
-

@@ -28,9 +28,7 @@
 </script>
 
 {#if visible}
-  <div class="indicator" role="status" aria-live="polite">
-    Items hidden — press Alt
-  </div>
+  <div class="indicator" role="status" aria-live="polite">Items hidden — press Alt</div>
 {/if}
 
 <style>

@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { onMount, onDestroy } from "svelte";
-  import { Compartment, EditorState, type Extension } from "@codemirror/state";
+  import { onMount, onDestroy } from 'svelte';
+  import { Compartment, EditorState, type Extension } from '@codemirror/state';
   import {
     EditorView,
     keymap,
@@ -11,39 +11,25 @@
     rectangularSelection,
     crosshairCursor,
     highlightSpecialChars,
-  } from "@codemirror/view";
-  import {
-    defaultKeymap,
-    history,
-    historyKeymap,
-    indentWithTab,
-  } from "@codemirror/commands";
-  import { bracketMatching } from "@codemirror/language";
-  import {
-    acceptCompletion,
-    closeBrackets,
-    closeBracketsKeymap,
-  } from "@codemirror/autocomplete";
-  import { lintGutter, setDiagnostics } from "@codemirror/lint";
+  } from '@codemirror/view';
+  import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
+  import { bracketMatching } from '@codemirror/language';
+  import { acceptCompletion, closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
+  import { lintGutter, setDiagnostics } from '@codemirror/lint';
 
-  import { d2rules } from "./d2rules-language";
-  import {
-    getDarkThemeExtensions,
-    getLightThemeExtensions,
-  } from "./d2rules-theme";
-  import { d2rulesLinter, type ValidationResult } from "./d2rules-linter";
-  import { d2rulesAutocomplete } from "./d2rules-autocomplete";
-  import { d2rulesHover } from "./d2rules-hover";
-  import { itemsDictionaryStore } from "../stores";
+  import { d2rules } from './d2rules-language';
+  import { getDarkThemeExtensions, getLightThemeExtensions } from './d2rules-theme';
+  import { d2rulesLinter, type ValidationResult } from './d2rules-linter';
+  import { d2rulesAutocomplete } from './d2rules-autocomplete';
+  import { d2rulesHover } from './d2rules-hover';
+  import { itemsDictionaryStore } from '../stores';
 
   /** Pick the editor theme that matches the active app theme. Reads the
    *  `data-theme` attribute on `<html>`, which `settingsStore.applyTheme`
    *  keeps in sync. */
   function themeExtensionsForCurrentMode(): Extension[] {
-    const mode = document.documentElement.getAttribute("data-theme");
-    return mode === "light"
-      ? getLightThemeExtensions()
-      : getDarkThemeExtensions();
+    const mode = document.documentElement.getAttribute('data-theme');
+    return mode === 'light' ? getLightThemeExtensions() : getDarkThemeExtensions();
   }
 
   interface Props {
@@ -62,9 +48,9 @@
   }
 
   let {
-    value = $bindable(""),
+    value = $bindable(''),
     readonly = false,
-    class: className = "",
+    class: className = '',
     onchange,
     onsave,
     onvalidate,
@@ -106,7 +92,7 @@
       // Keymaps
       keymap.of([
         ...closeBracketsKeymap,
-        { key: "Tab", run: acceptCompletion },
+        { key: 'Tab', run: acceptCompletion },
         ...defaultKeymap,
         ...historyKeymap,
         indentWithTab,
@@ -143,14 +129,14 @@
       extensions.push(
         keymap.of([
           {
-            key: "Mod-s",
+            key: 'Mod-s',
             run: () => {
               onsave(view?.state.doc.toString() ?? value);
               return true;
             },
             preventDefault: true,
           },
-        ])
+        ]),
       );
     }
 
@@ -180,7 +166,7 @@
     });
     themeObserver.observe(document.documentElement, {
       attributes: true,
-      attributeFilter: ["data-theme"],
+      attributeFilter: ['data-theme'],
     });
   });
 
@@ -238,16 +224,16 @@
 
   .rules-editor :global(.cm-scroller) {
     overflow: auto;
-    font-family: var(--font-mono, "Fira Code", "Consolas", monospace);
+    font-family: var(--font-mono, 'Fira Code', 'Consolas', monospace);
   }
 
   /* Lint gutter icon styling */
   .rules-editor :global(.cm-lint-marker-error) {
-    content: "●";
+    content: '●';
   }
 
   .rules-editor :global(.cm-lint-marker-warning) {
-    content: "●";
+    content: '●';
   }
 
   /* Diagnostic tooltip styling */

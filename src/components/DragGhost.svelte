@@ -26,8 +26,7 @@
   let lastX = x;
   let lastY = y;
 
-  const clamp = (v: number, lo: number, hi: number): number =>
-    Math.min(Math.max(v, lo), hi);
+  const clamp = (v: number, lo: number, hi: number): number => Math.min(Math.max(v, lo), hi);
 
   function onDown(e: MouseEvent): void {
     e.preventDefault();

@@ -16,7 +16,7 @@
   let alertChoices = $derived(
     slots
       .map((slot, i) => ({ index: i + 1, slot }))
-      .filter(({ slot }) => slot.source.kind !== 'empty')
+      .filter(({ slot }) => slot.source.kind !== 'empty'),
   );
 
   // Inline error message per slot (1-based index → message). Cleared on
@@ -212,18 +212,18 @@
 
         <div class="slot-actions">
           {#if !empty}
-            <Button
-              variant="secondary"
-              size="sm"
-              onclick={() => handlePlay(slotIndex)}
-            >
+            <Button variant="secondary" size="sm" onclick={() => handlePlay(slotIndex)}>
               Play
             </Button>
           {/if}
 
-          <Button variant="secondary" size="sm" onclick={() => {
-            document.getElementById(fileInputId(slotIndex))?.click();
-          }}>
+          <Button
+            variant="secondary"
+            size="sm"
+            onclick={() => {
+              document.getElementById(fileInputId(slotIndex))?.click();
+            }}
+          >
             {empty ? 'Upload' : 'Replace'}
           </Button>
           <input

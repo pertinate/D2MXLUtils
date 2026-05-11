@@ -38,37 +38,37 @@
   }: Props = $props();
 
   const qualityColors: Record<string, string> = {
-    'Unique': 'var(--quality-unique)',
-    'Set': 'var(--quality-set)',
-    'Rare': 'var(--quality-rare)',
-    'Magic': 'var(--quality-magic)',
-    'Crafted': 'var(--quality-crafted)',
-    'Honorific': 'var(--quality-crafted)',
-    'Superior': 'var(--quality-superior)',
-    'Inferior': 'var(--quality-normal)',
-    'Normal': 'var(--quality-normal)'
+    Unique: 'var(--quality-unique)',
+    Set: 'var(--quality-set)',
+    Rare: 'var(--quality-rare)',
+    Magic: 'var(--quality-magic)',
+    Crafted: 'var(--quality-crafted)',
+    Honorific: 'var(--quality-crafted)',
+    Superior: 'var(--quality-superior)',
+    Inferior: 'var(--quality-normal)',
+    Normal: 'var(--quality-normal)',
   };
 
   // Palette for rule-level `color` flag — takes precedence over quality color.
   const notifyColors: Record<string, string> = {
-    white:  'var(--notify-white)',
-    red:    'var(--notify-red)',
-    lime:   'var(--notify-lime)',
-    blue:   'var(--notify-blue)',
-    gold:   'var(--notify-gold)',
-    grey:   'var(--notify-grey)',
-    black:  'var(--notify-black)',
-    pink:   'var(--notify-pink)',
+    white: 'var(--notify-white)',
+    red: 'var(--notify-red)',
+    lime: 'var(--notify-lime)',
+    blue: 'var(--notify-blue)',
+    gold: 'var(--notify-gold)',
+    grey: 'var(--notify-grey)',
+    black: 'var(--notify-black)',
+    pink: 'var(--notify-pink)',
     orange: 'var(--notify-orange)',
     yellow: 'var(--notify-yellow)',
-    green:  'var(--notify-green)',
+    green: 'var(--notify-green)',
     purple: 'var(--notify-purple)',
   };
 
   const nameColor = $derived(
-    (item.filter?.color ? notifyColors[item.filter.color] : undefined)
-      ?? qualityColors[item.quality]
-      ?? 'var(--text-muted)'
+    (item.filter?.color ? notifyColors[item.filter.color] : undefined) ??
+      qualityColors[item.quality] ??
+      'var(--text-muted)',
   );
 
   // Items that get the two-line "name + base" treatment.

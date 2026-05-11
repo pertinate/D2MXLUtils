@@ -1,5 +1,5 @@
-import { hoverTooltip, type Tooltip } from "@codemirror/view";
-import { invoke } from "@tauri-apps/api/core";
+import { hoverTooltip, type Tooltip } from '@codemirror/view';
+import { invoke } from '@tauri-apps/api/core';
 
 const cache = new Map<string, string | null>();
 
@@ -9,11 +9,12 @@ async function explain(text: string): Promise<string | null> {
   }
   let result: string | null = null;
   try {
-    result = (await invoke<string | null>("explain_filter_line", {
-      line: text,
-    })) ?? null;
+    result =
+      (await invoke<string | null>('explain_filter_line', {
+        line: text,
+      })) ?? null;
   } catch (e) {
-    console.error("[d2rules-hover] explain_filter_line failed:", e);
+    console.error('[d2rules-hover] explain_filter_line failed:', e);
     result = null;
   }
   cache.set(text, result);
@@ -33,13 +34,13 @@ export function d2rulesHover() {
         end: line.to,
         above: true,
         create() {
-          const dom = document.createElement("div");
-          dom.className = "cm-tooltip-hover-explain";
+          const dom = document.createElement('div');
+          dom.className = 'cm-tooltip-hover-explain';
           dom.textContent = explanation;
           return { dom };
         },
       };
     },
-    { hideOnChange: true }
+    { hideOnChange: true },
   );
 }

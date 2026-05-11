@@ -10,7 +10,13 @@
 
   const UNBOUND_HOTKEY: HotkeyConfig = { keyCode: 0, modifiers: 0, display: 'None' };
 
-  type HotkeyId = 'toggleWindow' | 'editOverlay' | 'revealHidden' | 'lootHistory' | 'dpsMeterToggle' | 'dpsMeterReset';
+  type HotkeyId =
+    | 'toggleWindow'
+    | 'editOverlay'
+    | 'revealHidden'
+    | 'lootHistory'
+    | 'dpsMeterToggle'
+    | 'dpsMeterReset';
   interface HotkeyRow {
     id: HotkeyId;
     label: string;
@@ -63,11 +69,11 @@
   // the getter is invoked inside a $derived.
   const HOTKEY_GETTERS: Record<HotkeyId, () => HotkeyConfig> = {
     toggleWindow: () => settingsStore.settings.toggleWindowHotkey,
-    editOverlay:  () => settingsStore.settings.editOverlayHotkey,
+    editOverlay: () => settingsStore.settings.editOverlayHotkey,
     revealHidden: () => settingsStore.settings.revealHiddenHotkey,
-    lootHistory:  () => settingsStore.settings.lootHistoryHotkey,
+    lootHistory: () => settingsStore.settings.lootHistoryHotkey,
     dpsMeterToggle: () => settingsStore.settings.dpsMeter?.hotkeyToggle ?? UNBOUND_HOTKEY,
-    dpsMeterReset:  () => settingsStore.settings.dpsMeter?.hotkeyReset ?? UNBOUND_HOTKEY,
+    dpsMeterReset: () => settingsStore.settings.dpsMeter?.hotkeyReset ?? UNBOUND_HOTKEY,
   };
   let hotkeyValues = $derived(
     Object.fromEntries(
@@ -82,8 +88,8 @@
   let updaterState = $derived(updaterStore.state);
   let checkDisabled = $derived(
     updaterState.kind === 'checking' ||
-    updaterState.kind === 'downloading' ||
-    updaterState.kind === 'ready',
+      updaterState.kind === 'downloading' ||
+      updaterState.kind === 'ready',
   );
 
   function formatBytes(n: number): string {
@@ -95,12 +101,18 @@
   function updateStatusText(): string {
     const s = updaterState;
     switch (s.kind) {
-      case 'idle':        return '';
-      case 'checking':    return 'Checking…';
-      case 'up_to_date':  return 'You have the latest version';
-      case 'available':   return `Update v${s.latest} available — click the button in the top right`;
-      case 'downloading': return `Downloading ${formatBytes(s.downloaded)}`;
-      case 'ready':       return 'Ready to install. Click "Restart" in the top right';
+      case 'idle':
+        return '';
+      case 'checking':
+        return 'Checking…';
+      case 'up_to_date':
+        return 'You have the latest version';
+      case 'available':
+        return `Update v${s.latest} available — click the button in the top right`;
+      case 'downloading':
+        return `Downloading ${formatBytes(s.downloaded)}`;
+      case 'ready':
+        return 'Ready to install. Click "Restart" in the top right';
       case 'error':
         return s.phase === 'install'
           ? 'Update failed — likely antivirus blocking. Use the "Download manually" button in the top right.'
@@ -201,10 +213,16 @@
   }
 
   function formatEntry(text: string): string {
-    text = text.replace(/^(?:Feat|Fix|Refactor|Perf|Chore|Docs|Style|Build|Ci|Test)(\([^)]+\)):\s*/i, (_, scope) => {
-      return `<span class="cl-scope">${scope.slice(1, -1)}</span>`;
-    });
-    text = text.replace(/\(([0-9a-f]{7})\)$/, '<a class="cl-hash" href="https://github.com/synonymouse/D2MXLUtils/commit/$1" target="_blank">$1</a>');
+    text = text.replace(
+      /^(?:Feat|Fix|Refactor|Perf|Chore|Docs|Style|Build|Ci|Test)(\([^)]+\)):\s*/i,
+      (_, scope) => {
+        return `<span class="cl-scope">${scope.slice(1, -1)}</span>`;
+      },
+    );
+    text = text.replace(
+      /\(([0-9a-f]{7})\)$/,
+      '<a class="cl-hash" href="https://github.com/synonymouse/D2MXLUtils/commit/$1" target="_blank">$1</a>',
+    );
     return text;
   }
 </script>
@@ -217,12 +235,10 @@
       <div class="setting-row">
         <div class="setting-info">
           <span class="setting-label">{row.label}</span>
-          <span class="setting-hint">{@html row.hint.replace(/`([^`]+)`/g, '<code>$1</code>')}</span>
+          <span class="setting-hint">{@html row.hint.replace(/`([^`]+)`/g, '<code>$1</code>')}</span
+          >
         </div>
-        <HotkeyInput
-          value={hotkeyValues[row.id]}
-          onchange={(h) => handleHotkeyChange(row.id, h)}
-        />
+        <HotkeyInput value={hotkeyValues[row.id]} onchange={(h) => handleHotkeyChange(row.id, h)} />
       </div>
     {/each}
   </div>
@@ -233,7 +249,11 @@
     <div class="setting-row">
       <div class="setting-info">
         <span class="setting-label">Show overlay</span>
-        <span class="setting-hint">Live DPS / Kills/min / Peak / Total / Kills panel rendered on the in-game overlay. Captures damage in both single-player and multiplayer. DoT damage (poison/burn) is captured with one tick of delay.</span>
+        <span class="setting-hint"
+          >Live DPS / Kills/min / Peak / Total / Kills panel rendered on the in-game overlay.
+          Captures damage in both single-player and multiplayer. DoT damage (poison/burn) is
+          captured with one tick of delay.</span
+        >
       </div>
       <Toggle checked={dpsMeterEnabled} onchange={handleDpsMeterEnabledChange} />
     </div>
@@ -244,10 +264,7 @@
           <span class="setting-label">{row.label}</span>
           <span class="setting-hint">{row.hint}</span>
         </div>
-        <HotkeyInput
-          value={hotkeyValues[row.id]}
-          onchange={(h) => handleHotkeyChange(row.id, h)}
-        />
+        <HotkeyInput value={hotkeyValues[row.id]} onchange={(h) => handleHotkeyChange(row.id, h)} />
       </div>
     {/each}
   </div>
@@ -256,7 +273,8 @@
     <div class="setting-row">
       <div class="setting-info">
         <span class="setting-label">Auto-toggle item highlight (alt) on new game</span>
-        <span class="setting-hint">Highlights ground drops automatically without pressing Alt.</span>
+        <span class="setting-hint">Highlights ground drops automatically without pressing Alt.</span
+        >
       </div>
       <Toggle checked={autoAlwaysShowItems} onchange={handleAutoAlwaysShowItemsChange} />
     </div>
@@ -264,7 +282,9 @@
     <div class="setting-row">
       <div class="setting-info">
         <span class="setting-label">Verbose filter logging</span>
-        <span class="setting-hint">Log per-item filter decisions to d2mxlutils.log. Useful when debugging rules.</span>
+        <span class="setting-hint"
+          >Log per-item filter decisions to d2mxlutils.log. Useful when debugging rules.</span
+        >
       </div>
       <Toggle checked={verboseFilterLogging} onchange={handleVerboseLoggingChange} />
     </div>
@@ -275,9 +295,7 @@
         <span class="setting-hint">Settings, profiles, logs</span>
       </div>
       <div class="update-control">
-        <Button variant="secondary" size="sm" onclick={handleOpenAppFolder}>
-          Open folder
-        </Button>
+        <Button variant="secondary" size="sm" onclick={handleOpenAppFolder}>Open folder</Button>
       </div>
     </div>
 
@@ -290,7 +308,12 @@
         </span>
       </div>
       <div class="update-control">
-        <Button variant="secondary" size="sm" disabled={checkDisabled} onclick={handleCheckForUpdates}>
+        <Button
+          variant="secondary"
+          size="sm"
+          disabled={checkDisabled}
+          onclick={handleCheckForUpdates}
+        >
           Check for updates
         </Button>
       </div>
@@ -306,16 +329,30 @@
 
 {#if showChangelog}
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-  <div class="changelog-backdrop" role="dialog" aria-modal="true" onkeydown={(e) => e.key === 'Escape' && (showChangelog = false)} onclick={() => (showChangelog = false)}>
+  <div
+    class="changelog-backdrop"
+    role="dialog"
+    aria-modal="true"
+    onkeydown={(e) => e.key === 'Escape' && (showChangelog = false)}
+    onclick={() => (showChangelog = false)}
+  >
     <div class="changelog-modal" onclick={(e) => e.stopPropagation()}>
       <div class="changelog-header">
         <h2 class="changelog-title">Changelog</h2>
-        <button type="button" class="changelog-close" onclick={() => (showChangelog = false)}>&times;</button>
+        <button type="button" class="changelog-close" onclick={() => (showChangelog = false)}
+          >&times;</button
+        >
       </div>
-      <div class="changelog-body" onclick={(e) => {
-        const a = (e.target as HTMLElement).closest('a.cl-hash');
-        if (a) { e.preventDefault(); invoke('open_external_url', { url: (a as HTMLAnchorElement).href }); }
-      }}>
+      <div
+        class="changelog-body"
+        onclick={(e) => {
+          const a = (e.target as HTMLElement).closest('a.cl-hash');
+          if (a) {
+            e.preventDefault();
+            invoke('open_external_url', { url: (a as HTMLAnchorElement).href });
+          }
+        }}
+      >
         {@html changelogHtml}
       </div>
     </div>

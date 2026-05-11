@@ -50,7 +50,11 @@ pub struct SoundSlot {
 /// - `Custom`: user-imported file in `app_data_dir/sounds/`.
 /// - `Empty`: silence; only for slots >= 8 after deletion.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub enum SoundSource {
     Default,
     Custom { file_name: String },
@@ -260,11 +264,10 @@ pub fn load_settings(app: AppHandle) -> Result<AppSettings, String> {
         return Ok(AppSettings::default());
     };
 
-    let mut settings: AppSettings = serde_json::from_value(raw.clone())
-        .unwrap_or_else(|e| {
-            log_error(&format!("Failed to parse settings, using defaults: {}", e));
-            AppSettings::default()
-        });
+    let mut settings: AppSettings = serde_json::from_value(raw.clone()).unwrap_or_else(|e| {
+        log_error(&format!("Failed to parse settings, using defaults: {}", e));
+        AppSettings::default()
+    });
 
     if crate::migrations::migrate(&raw, &mut settings) {
         let value = serde_json::to_value(&settings)
@@ -391,13 +394,23 @@ mod tests {
     #[test]
     fn sound_source_round_trips_each_variant() {
         let slots = vec![
-            SoundSlot { label: "Default".into(), volume: 0.8, source: SoundSource::Default },
+            SoundSlot {
+                label: "Default".into(),
+                volume: 0.8,
+                source: SoundSource::Default,
+            },
             SoundSlot {
                 label: "Custom".into(),
                 volume: 0.5,
-                source: SoundSource::Custom { file_name: "slot-8.mp3".into() },
+                source: SoundSource::Custom {
+                    file_name: "slot-8.mp3".into(),
+                },
             },
-            SoundSlot { label: "Empty".into(), volume: 0.0, source: SoundSource::Empty },
+            SoundSlot {
+                label: "Empty".into(),
+                volume: 0.0,
+                source: SoundSource::Empty,
+            },
         ];
         let json = serde_json::to_string(&slots).unwrap();
         let back: Vec<SoundSlot> = serde_json::from_str(&json).unwrap();
@@ -415,7 +428,9 @@ mod tests {
         let slot = SoundSlot {
             label: "Custom".into(),
             volume: 0.5,
-            source: SoundSource::Custom { file_name: "slot-8.mp3".into() },
+            source: SoundSource::Custom {
+                file_name: "slot-8.mp3".into(),
+            },
         };
         let json = serde_json::to_string(&slot).unwrap();
         // The wire format MUST use camelCase `fileName`, otherwise the JS
@@ -443,7 +458,8 @@ mod tests {
             "volume": 0.5,
             "source": { "kind": "custom", "fileName": "slot-8.mp3" }
         }"#;
-        let slot: SoundSlot = serde_json::from_str(json).expect("frontend payload must deserialise");
+        let slot: SoundSlot =
+            serde_json::from_str(json).expect("frontend payload must deserialise");
         match slot.source {
             SoundSource::Custom { file_name } => assert_eq!(file_name, "slot-8.mp3"),
             other => panic!("expected Custom, got {:?}", other),

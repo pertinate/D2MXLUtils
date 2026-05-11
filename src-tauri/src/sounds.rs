@@ -63,8 +63,7 @@ pub fn import_sound_file(
             MAX_BYTES
         ));
     }
-    let ext = extension_from(&file_name)
-        .ok_or_else(|| "file has no extension".to_string())?;
+    let ext = extension_from(&file_name).ok_or_else(|| "file has no extension".to_string())?;
     if !ALLOWED_EXTS.contains(&ext.as_str()) {
         return Err(format!(
             "unsupported format '{}' (allowed: {})",

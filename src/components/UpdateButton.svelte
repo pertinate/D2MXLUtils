@@ -39,9 +39,7 @@
     <span class="label">Downloading {formatBytes(state.downloaded)}</span>
   </button>
 {:else if state.kind === 'ready'}
-  <button class="update-pill ready" onclick={handleClick}>
-    Restart
-  </button>
+  <button class="update-pill ready" onclick={handleClick}> Restart </button>
 {:else if state.kind === 'error' && state.phase === 'install'}
   <button
     class="update-pill error"
@@ -71,7 +69,9 @@
     font-weight: 600;
     letter-spacing: 0.2px;
     cursor: pointer;
-    transition: background 0.15s ease, transform 0.05s ease;
+    transition:
+      background 0.15s ease,
+      transform 0.05s ease;
   }
 
   .update-pill:hover:not(:disabled) {
@@ -102,13 +102,23 @@
   }
 
   @keyframes pulse {
-    0%, 100% { box-shadow: 0 0 0 0 var(--accent-primary-muted); }
-    50%      { box-shadow: 0 0 0 4px var(--accent-primary-muted); }
+    0%,
+    100% {
+      box-shadow: 0 0 0 0 var(--accent-primary-muted);
+    }
+    50% {
+      box-shadow: 0 0 0 4px var(--accent-primary-muted);
+    }
   }
 
   @keyframes dot-pulse {
-    0%, 100% { opacity: 0.6; }
-    50%      { opacity: 1; }
+    0%,
+    100% {
+      opacity: 0.6;
+    }
+    50% {
+      opacity: 1;
+    }
   }
 
   /* downloading — indeterminate shimmer sliding across the pill */
@@ -127,20 +137,19 @@
   .update-pill.downloading .shimmer {
     position: absolute;
     inset: 0;
-    background: linear-gradient(
-      90deg,
-      transparent 0%,
-      var(--accent-primary) 50%,
-      transparent 100%
-    );
+    background: linear-gradient(90deg, transparent 0%, var(--accent-primary) 50%, transparent 100%);
     opacity: 0.45;
     transform: translateX(-100%);
     animation: shimmer 1.4s linear infinite;
   }
 
   @keyframes shimmer {
-    from { transform: translateX(-100%); }
-    to   { transform: translateX(100%); }
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: translateX(100%);
+    }
   }
 
   /* ready — solid, confident */

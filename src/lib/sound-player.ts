@@ -38,9 +38,12 @@ function getAppDataDir(): Promise<string> {
 
 function urlForSlot(slot: SoundSlot, index1: number, dir: string): string | null {
   switch (slot.source.kind) {
-    case 'default': return `/sounds/${index1}.mp3`;
-    case 'custom':  return convertFileSrc(`${dir}/sounds/${slot.source.fileName}`);
-    case 'empty':   return null;
+    case 'default':
+      return `/sounds/${index1}.mp3`;
+    case 'custom':
+      return convertFileSrc(`${dir}/sounds/${slot.source.fileName}`);
+    case 'empty':
+      return null;
   }
 }
 

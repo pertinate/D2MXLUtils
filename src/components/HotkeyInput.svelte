@@ -8,12 +8,7 @@
     disabled?: boolean;
   }
 
-  let {
-    value = $bindable(),
-    onchange,
-    label = '',
-    disabled = false,
-  }: Props = $props();
+  let { value = $bindable(), onchange, label = '', disabled = false }: Props = $props();
 
   let isRecording = $state(false);
   // Peak modifier set seen during recording; used to commit modifier-only chords on release.
@@ -27,23 +22,38 @@
 
   // Special keys mapping (code -> [vk, displayName])
   const SPECIAL_KEYS: Record<string, [number, string]> = {
-    Space: [0x20, 'Space'], Enter: [0x0D, 'Enter'], Tab: [0x09, 'Tab'],
-    Escape: [0x1B, 'Esc'], Backspace: [0x08, 'Backspace'],
-    Delete: [0x2E, 'Del'], Insert: [0x2D, 'Ins'],
-    Home: [0x24, 'Home'], End: [0x23, 'End'],
-    PageUp: [0x21, 'PgUp'], PageDown: [0x22, 'PgDn'],
-    ArrowUp: [0x26, '↑'], ArrowDown: [0x28, '↓'],
-    ArrowLeft: [0x25, '←'], ArrowRight: [0x27, '→'],
-    Semicolon: [0xBA, ';'], Equal: [0xBB, '='], Comma: [0xBC, ','],
-    Minus: [0xBD, '-'], Period: [0xBE, '.'], Slash: [0xBF, '/'],
-    Backquote: [0xC0, '`'], BracketLeft: [0xDB, '['],
-    Backslash: [0xDC, '\\'], BracketRight: [0xDD, ']'], Quote: [0xDE, "'"],
+    Space: [0x20, 'Space'],
+    Enter: [0x0d, 'Enter'],
+    Tab: [0x09, 'Tab'],
+    Escape: [0x1b, 'Esc'],
+    Backspace: [0x08, 'Backspace'],
+    Delete: [0x2e, 'Del'],
+    Insert: [0x2d, 'Ins'],
+    Home: [0x24, 'Home'],
+    End: [0x23, 'End'],
+    PageUp: [0x21, 'PgUp'],
+    PageDown: [0x22, 'PgDn'],
+    ArrowUp: [0x26, '↑'],
+    ArrowDown: [0x28, '↓'],
+    ArrowLeft: [0x25, '←'],
+    ArrowRight: [0x27, '→'],
+    Semicolon: [0xba, ';'],
+    Equal: [0xbb, '='],
+    Comma: [0xbc, ','],
+    Minus: [0xbd, '-'],
+    Period: [0xbe, '.'],
+    Slash: [0xbf, '/'],
+    Backquote: [0xc0, '`'],
+    BracketLeft: [0xdb, '['],
+    Backslash: [0xdc, '\\'],
+    BracketRight: [0xdd, ']'],
+    Quote: [0xde, "'"],
   };
 
   // Convert KeyboardEvent to Windows VK code and display name
   function eventToVk(e: KeyboardEvent): [number, string] | null {
     const { key, code } = e;
-    
+
     // Letters: KeyA -> 0x41, display "A"
     if (code.startsWith('Key') && code.length === 4) {
       const letter = code[3];
@@ -58,19 +68,19 @@
     const fMatch = code.match(/^F(\d+)$/);
     if (fMatch) {
       const num = parseInt(fMatch[1]);
-      if (num >= 1 && num <= 12) return [0x6F + num, `F${num}`];
+      if (num >= 1 && num <= 12) return [0x6f + num, `F${num}`];
     }
     // Special keys
     if (SPECIAL_KEYS[code]) return SPECIAL_KEYS[code];
-    
+
     return null;
   }
 
   // Convert stored VK code to display name
   function vkToDisplay(vk: number): string {
-    if (vk >= 0x41 && vk <= 0x5A) return String.fromCharCode(vk); // A-Z
+    if (vk >= 0x41 && vk <= 0x5a) return String.fromCharCode(vk); // A-Z
     if (vk >= 0x30 && vk <= 0x39) return String.fromCharCode(vk); // 0-9
-    if (vk >= 0x70 && vk <= 0x7B) return `F${vk - 0x6F}`; // F1-F12
+    if (vk >= 0x70 && vk <= 0x7b) return `F${vk - 0x6f}`; // F1-F12
     // Reverse lookup in special keys
     for (const [, [code, name]] of Object.entries(SPECIAL_KEYS)) {
       if (code === vk) return name;
@@ -151,7 +161,12 @@
     class="hotkey-input"
     class:recording={isRecording}
     {disabled}
-    onclick={() => { if (!disabled) { isRecording = true; recordedModifiers = 0; } }}
+    onclick={() => {
+      if (!disabled) {
+        isRecording = true;
+        recordedModifiers = 0;
+      }
+    }}
     onkeydown={handleKeyDown}
     onkeyup={handleKeyUp}
     onblur={handleBlur}
@@ -224,7 +239,8 @@
   }
 
   @keyframes pulse {
-    0%, 100% {
+    0%,
+    100% {
       opacity: 1;
     }
     50% {
@@ -232,4 +248,3 @@
     }
   }
 </style>
-

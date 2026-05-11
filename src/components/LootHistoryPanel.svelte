@@ -13,30 +13,30 @@
   // Palette mirrors Notification.svelte's nameColor cascade exactly:
   // explicit rule color → quality color → muted fallback.
   const notifyColors: Record<string, string> = {
-    white:  'var(--notify-white)',
-    red:    'var(--notify-red)',
-    lime:   'var(--notify-lime)',
-    blue:   'var(--notify-blue)',
-    gold:   'var(--notify-gold)',
-    grey:   'var(--notify-grey)',
-    black:  'var(--notify-black)',
-    pink:   'var(--notify-pink)',
+    white: 'var(--notify-white)',
+    red: 'var(--notify-red)',
+    lime: 'var(--notify-lime)',
+    blue: 'var(--notify-blue)',
+    gold: 'var(--notify-gold)',
+    grey: 'var(--notify-grey)',
+    black: 'var(--notify-black)',
+    pink: 'var(--notify-pink)',
     orange: 'var(--notify-orange)',
     yellow: 'var(--notify-yellow)',
-    green:  'var(--notify-green)',
+    green: 'var(--notify-green)',
     purple: 'var(--notify-purple)',
   };
 
   const qualityColors: Record<string, string> = {
-    'Unique':    'var(--quality-unique)',
-    'Set':       'var(--quality-set)',
-    'Rare':      'var(--quality-rare)',
-    'Magic':     'var(--quality-magic)',
-    'Crafted':   'var(--quality-crafted)',
-    'Honorific': 'var(--quality-crafted)',
-    'Superior':  'var(--quality-superior)',
-    'Inferior':  'var(--quality-normal)',
-    'Normal':    'var(--quality-normal)',
+    Unique: 'var(--quality-unique)',
+    Set: 'var(--quality-set)',
+    Rare: 'var(--quality-rare)',
+    Magic: 'var(--quality-magic)',
+    Crafted: 'var(--quality-crafted)',
+    Honorific: 'var(--quality-crafted)',
+    Superior: 'var(--quality-superior)',
+    Inferior: 'var(--quality-normal)',
+    Normal: 'var(--quality-normal)',
   };
 
   function formatTime(ms: number): string {
@@ -49,9 +49,12 @@
 
   function pickupIcon(state: LootHistoryEntry['pickup']): string {
     switch (state) {
-      case 'picked_up': return '✓';
-      case 'lost': return '⊘';
-      case 'pending': return '⏳';
+      case 'picked_up':
+        return '✓';
+      case 'lost':
+        return '⊘';
+      case 'pending':
+        return '⏳';
     }
   }
 
@@ -62,9 +65,11 @@
   function nameColor(entry: LootHistoryEntry): string {
     // Final fallback is hardcoded — `--text-muted` flips to a dark value
     // under the light theme and would be invisible on our dark panel.
-    return (entry.color ? notifyColors[entry.color] : undefined)
-      ?? qualityColors[entry.quality]
-      ?? '#bdbdbd';
+    return (
+      (entry.color ? notifyColors[entry.color] : undefined) ??
+      qualityColors[entry.quality] ??
+      '#bdbdbd'
+    );
   }
 
   function onScroll() {
@@ -104,21 +109,12 @@
         type="button"
         class="clear-btn"
         onclick={() => lootHistoryStore.clear()}
-        aria-label="Clear history"
-      >Clear</button>
-      <button
-        type="button"
-        class="close"
-        onclick={onClose}
-        aria-label="Close"
-      >×</button>
+        aria-label="Clear history">Clear</button
+      >
+      <button type="button" class="close" onclick={onClose} aria-label="Close">×</button>
     </div>
   </header>
-  <div
-    class="list"
-    bind:this={scrollContainer}
-    onscroll={onScroll}
-  >
+  <div class="list" bind:this={scrollContainer} onscroll={onScroll}>
     {#each lootHistoryStore.entries as entry (entry.seed !== 0 ? `s:${entry.seed}` : `u:${entry.unit_id}`)}
       <div class="row">
         <span class="time">[{formatTime(entry.timestamp_ms)}]</span>
@@ -177,7 +173,9 @@
     border-radius: 3px;
     cursor: pointer;
   }
-  .clear-btn:hover { background: rgba(255, 255, 255, 0.1); }
+  .clear-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+  }
   .close {
     background: transparent;
     border: none;
@@ -187,7 +185,9 @@
     cursor: pointer;
     padding: 0 4px;
   }
-  .close:hover { color: #f88; }
+  .close:hover {
+    color: #f88;
+  }
   .list {
     overflow-y: auto;
     padding: 6px 12px;
@@ -201,11 +201,30 @@
     align-items: baseline;
     gap: 8px;
   }
-  .time { color: rgba(255, 255, 255, 0.5); }
-  .pickup { width: 1em; text-align: center; }
-  :global(.pickup-picked_up) { color: #5cd66a; }
-  :global(.pickup-lost) { color: rgba(255, 255, 255, 0.4); }
-  :global(.pickup-pending) { color: #f0b400; }
-  .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .empty { padding: 16px; text-align: center; color: rgba(255, 255, 255, 0.4); }
+  .time {
+    color: rgba(255, 255, 255, 0.5);
+  }
+  .pickup {
+    width: 1em;
+    text-align: center;
+  }
+  :global(.pickup-picked_up) {
+    color: #5cd66a;
+  }
+  :global(.pickup-lost) {
+    color: rgba(255, 255, 255, 0.4);
+  }
+  :global(.pickup-pending) {
+    color: #f0b400;
+  }
+  .name {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .empty {
+    padding: 16px;
+    text-align: center;
+    color: rgba(255, 255, 255, 0.4);
+  }
 </style>
