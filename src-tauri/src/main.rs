@@ -67,11 +67,11 @@ use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 use windows::Win32::UI::Shell::{FOLDERID_LocalAppData, SHGetKnownFolderPath, KF_FLAG_DEFAULT};
 #[cfg(target_os = "windows")]
 use windows::Win32::UI::WindowsAndMessaging::{
-    FindWindowW, GetForegroundWindow, GetWindowLongW, GetWindowRect, MoveWindow, SetWindowLongW,
-    SetWindowPos, ShowWindow, GWL_EXSTYLE, GWL_STYLE, HWND_TOPMOST, SWP_FRAMECHANGED,
-    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SW_HIDE, SW_SHOWNA, WS_BORDER,
-    WS_CAPTION, WS_DLGFRAME, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT,
-    WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_POPUP, WS_SYSMENU, WS_THICKFRAME,
+    FindWindowW, GetForegroundWindow, GetWindowLongW, GetWindowRect, IsIconic, MoveWindow,
+    SetWindowLongW, SetWindowPos, ShowWindow, GWL_EXSTYLE, GWL_STYLE, HWND_TOPMOST,
+    SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SW_HIDE, SW_SHOWNA,
+    WS_BORDER, WS_CAPTION, WS_DLGFRAME, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+    WS_EX_TRANSPARENT, WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_POPUP, WS_SYSMENU, WS_THICKFRAME,
 };
 
 /// Shared state for controlling the scanner
@@ -1041,8 +1041,38 @@ fn overlay_window_spec(kind: OverlayWindowKind) -> OverlayWindowSpec {
     }
 }
 
+fn overlay_should_be_visible(foreground_matches_game: bool, _game_minimized: bool) -> bool {
+    foreground_matches_game && !_game_minimized
+}
+
+fn overlay_should_strip_chrome(_style_changed: bool, chrome_present: bool) -> bool {
+    chrome_present
+}
+
+#[cfg(target_os = "windows")]
+fn overlay_chrome_mask() -> i32 {
+    (WS_CAPTION.0
+        | WS_BORDER.0
+        | WS_DLGFRAME.0
+        | WS_THICKFRAME.0
+        | WS_SYSMENU.0
+        | WS_MINIMIZEBOX.0
+        | WS_MAXIMIZEBOX.0) as i32
+}
+
 #[cfg(target_os = "windows")]
 static OVERLAY_LAST_RECT: Mutex<Option<RECT>> = Mutex::new(None);
+
+#[cfg(target_os = "windows")]
+fn reset_overlay_runtime_state() {
+    OVERLAY_WAS_VISIBLE.store(false, Ordering::SeqCst);
+    OVERLAY_STYLES_APPLIED.store(false, Ordering::SeqCst);
+    OVERLAY_LAST_CLICK_THROUGH_APPLIED.store(-1, Ordering::SeqCst);
+    OVERLAY_LAST_EDIT_MODE_APPLIED.store(-1, Ordering::SeqCst);
+    if let Ok(mut last) = OVERLAY_LAST_RECT.lock() {
+        *last = None;
+    }
+}
 
 #[cfg(test)]
 mod overlay_window_tests {
@@ -1062,6 +1092,20 @@ mod overlay_window_tests {
         assert_eq!(edit.title, "D2MXLUtils Overlay");
         assert!(!edit.layered);
         assert!(!edit.click_through);
+    }
+
+    #[test]
+    fn overlay_is_hidden_when_game_is_minimized_even_if_foreground_still_matches() {
+        assert!(overlay_should_be_visible(true, false));
+        assert!(!overlay_should_be_visible(false, false));
+        assert!(!overlay_should_be_visible(true, true));
+    }
+
+    #[test]
+    fn overlay_chrome_is_stripped_even_without_style_transition() {
+        assert!(overlay_should_strip_chrome(true, true));
+        assert!(overlay_should_strip_chrome(false, true));
+        assert!(!overlay_should_strip_chrome(false, false));
     }
 }
 
@@ -1103,16 +1147,11 @@ fn sync_overlay_with_game_impl(app: &AppHandle) -> Result<(), String> {
 
     unsafe {
         let fg = GetForegroundWindow();
-        if fg.0 != hwnd_game.0 {
+        let game_minimized = IsIconic(hwnd_game).as_bool();
+        if !overlay_should_be_visible(fg.0 == hwnd_game.0, game_minimized) {
             let _ = ShowWindow(hwnd_overlay, SW_HIDE);
             let _ = overlay_window.hide();
-            OVERLAY_WAS_VISIBLE.store(false, Ordering::SeqCst);
-            OVERLAY_STYLES_APPLIED.store(false, Ordering::SeqCst);
-            OVERLAY_LAST_CLICK_THROUGH_APPLIED.store(-1, Ordering::SeqCst);
-            OVERLAY_LAST_EDIT_MODE_APPLIED.store(-1, Ordering::SeqCst);
-            if let Ok(mut last) = OVERLAY_LAST_RECT.lock() {
-                *last = None;
-            }
+            reset_overlay_runtime_state();
             return Ok(());
         }
     }
@@ -1163,31 +1202,6 @@ fn sync_overlay_with_game_impl(app: &AppHandle) -> Result<(), String> {
             OVERLAY_LAST_CLICK_THROUGH_APPLIED.store(desired_ct_i8, Ordering::SeqCst);
             OVERLAY_LAST_EDIT_MODE_APPLIED.store(edit_active_i8, Ordering::SeqCst);
 
-            // On some systems Tauri's `decorations: false` leaks chrome bits
-            // (Aero Lite, Windhawk/ExplorerPatcher, classic theme), so strip
-            // them by hand and force WS_POPUP.
-            let style = GetWindowLongW(hwnd_overlay, GWL_STYLE);
-            let chrome_mask = (WS_CAPTION.0
-                | WS_BORDER.0
-                | WS_DLGFRAME.0
-                | WS_THICKFRAME.0
-                | WS_SYSMENU.0
-                | WS_MINIMIZEBOX.0
-                | WS_MAXIMIZEBOX.0) as i32;
-            let new_style = (style & !chrome_mask) | WS_POPUP.0 as i32;
-            if new_style != style {
-                SetWindowLongW(hwnd_overlay, GWL_STYLE, new_style);
-                let _ = SetWindowPos(
-                    hwnd_overlay,
-                    HWND_TOPMOST,
-                    0,
-                    0,
-                    0,
-                    0,
-                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
-                );
-            }
-
             // Suppress the 1px Win11 DWM accent frame; ignored on Win10.
             const DWMWA_COLOR_NONE: u32 = 0xFFFFFFFE;
             let _ = DwmSetWindowAttribute(
@@ -1195,6 +1209,25 @@ fn sync_overlay_with_game_impl(app: &AppHandle) -> Result<(), String> {
                 DWMWA_BORDER_COLOR,
                 &DWMWA_COLOR_NONE as *const u32 as *const _,
                 std::mem::size_of::<u32>() as u32,
+            );
+        }
+
+        // Tauri/Windows can reintroduce caption bits when transparency styles
+        // change. Re-strip them every sync so a title bar cannot survive until
+        // the next edit-mode transition.
+        let style = GetWindowLongW(hwnd_overlay, GWL_STYLE);
+        let chrome_mask = overlay_chrome_mask();
+        if overlay_should_strip_chrome(needs_style, (style & chrome_mask) != 0) {
+            let new_style = (style & !chrome_mask) | WS_POPUP.0 as i32;
+            SetWindowLongW(hwnd_overlay, GWL_STYLE, new_style);
+            let _ = SetWindowPos(
+                hwnd_overlay,
+                HWND_TOPMOST,
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
             );
         }
 

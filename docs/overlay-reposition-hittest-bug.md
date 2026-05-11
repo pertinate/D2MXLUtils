@@ -178,6 +178,10 @@ window shadow.
   instead of showing/hiding a helper window.
 - `shadow: false` in `tauri.conf.json` removes the 1px native border/shadow
   around the undecorated Windows overlay.
+- Overlay sync hides the overlay when D2 is minimized (`IsIconic`) even if
+  `GetForegroundWindow` still briefly reports the game HWND.
+- Overlay sync strips leaked caption/chrome bits every tick, not only during
+  edit-mode style transitions, so a native title bar cannot linger.
 - The old 8px outward overscan workaround was only hiding the native edge and is
   no longer needed.
 - Manual validation still needs to confirm drag works across the full D2 window
