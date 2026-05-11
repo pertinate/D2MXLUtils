@@ -15,9 +15,9 @@
     ) as Record<string, { x: number; y: number }>,
   );
 
-  // User releases the edit chord mid-drag: OverlayWindow flips editActive
-  // to false and unmounts us before DragGhost ever sees mouseup. Flush any
-  // pending positions on teardown so the partial drag survives.
+  // User releases the edit chord mid-drag: the edit window unmounts us before
+  // DragGhost ever sees mouseup. Flush pending positions so the partial drag
+  // survives.
   onDestroy(() => {
     for (const w of OVERLAY_WIDGETS) {
       const p = pending[w.id];

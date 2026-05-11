@@ -972,6 +972,20 @@ fn set_overlay_interactive(app: AppHandle, active: bool) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn set_overlay_edit_mode(app: AppHandle, active: bool) -> Result<(), String> {
+    OVERLAY_EDIT_ACTIVE.store(active, Ordering::SeqCst);
+    #[cfg(target_os = "windows")]
+    {
+        let _ = sync_overlay_with_game_impl(&app);
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = app;
+    }
+    Ok(())
+}
+
+#[tauri::command]
 fn sync_overlay_with_game(app: AppHandle) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
@@ -988,16 +1002,72 @@ fn sync_overlay_with_game(app: AppHandle) -> Result<(), String> {
 static OVERLAY_WAS_VISIBLE: AtomicBool = AtomicBool::new(false);
 static OVERLAY_CLICK_THROUGH: AtomicBool = AtomicBool::new(true);
 static OVERLAY_STYLES_APPLIED: AtomicBool = AtomicBool::new(false);
+static OVERLAY_EDIT_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 // -1 sentinel = never applied; forces first sync to push the style.
 static OVERLAY_LAST_CLICK_THROUGH_APPLIED: std::sync::atomic::AtomicI8 =
     std::sync::atomic::AtomicI8::new(-1);
+static OVERLAY_LAST_EDIT_MODE_APPLIED: std::sync::atomic::AtomicI8 =
+    std::sync::atomic::AtomicI8::new(-1);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum OverlayWindowKind {
+    Visual,
+    Edit,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct OverlayWindowSpec {
+    label: &'static str,
+    title: &'static str,
+    layered: bool,
+    click_through: bool,
+}
+
+fn overlay_window_spec(kind: OverlayWindowKind) -> OverlayWindowSpec {
+    match kind {
+        OverlayWindowKind::Visual => OverlayWindowSpec {
+            label: "overlay",
+            title: "D2MXLUtils Overlay",
+            layered: true,
+            click_through: true,
+        },
+        OverlayWindowKind::Edit => OverlayWindowSpec {
+            label: "overlay",
+            title: "D2MXLUtils Overlay",
+            layered: false,
+            click_through: false,
+        },
+    }
+}
 
 #[cfg(target_os = "windows")]
 static OVERLAY_LAST_RECT: Mutex<Option<RECT>> = Mutex::new(None);
 
+#[cfg(test)]
+mod overlay_window_tests {
+    use super::*;
+
+    #[test]
+    fn visual_and_edit_modes_reuse_one_overlay_window_with_different_styles() {
+        let visual = overlay_window_spec(OverlayWindowKind::Visual);
+        let edit = overlay_window_spec(OverlayWindowKind::Edit);
+
+        assert_eq!(visual.label, "overlay");
+        assert_eq!(visual.title, "D2MXLUtils Overlay");
+        assert!(visual.layered);
+        assert!(visual.click_through);
+
+        assert_eq!(edit.label, "overlay");
+        assert_eq!(edit.title, "D2MXLUtils Overlay");
+        assert!(!edit.layered);
+        assert!(!edit.click_through);
+    }
+}
+
 #[cfg(target_os = "windows")]
 fn sync_overlay_with_game_impl(app: &AppHandle) -> Result<(), String> {
+    let visual_spec = overlay_window_spec(OverlayWindowKind::Visual);
     let class_wide: Vec<u16> = OsStr::new("Diablo II")
         .encode_wide()
         .chain(Some(0))
@@ -1013,16 +1083,19 @@ fn sync_overlay_with_game_impl(app: &AppHandle) -> Result<(), String> {
     }
 
     let overlay_window = app
-        .get_webview_window("overlay")
-        .ok_or("Overlay window with label 'overlay' not found")?;
+        .get_webview_window(visual_spec.label)
+        .ok_or(format!(
+            "Overlay window with label '{}' not found",
+            visual_spec.label
+        ))?;
 
-    let title_wide: Vec<u16> = OsStr::new("D2MXLUtils Overlay")
+    let title_wide: Vec<u16> = OsStr::new(visual_spec.title)
         .encode_wide()
         .chain(Some(0))
         .collect();
 
     let hwnd_overlay = unsafe { FindWindowW(PCWSTR::null(), PCWSTR(title_wide.as_ptr())) }
-        .map_err(|_| "Overlay OS window 'D2MXLUtils Overlay' not found".to_string())?;
+        .map_err(|_| format!("Overlay OS window '{}' not found", visual_spec.title))?;
 
     if hwnd_overlay.0.is_null() {
         return Err("Overlay HWND is null".to_string());
@@ -1036,6 +1109,7 @@ fn sync_overlay_with_game_impl(app: &AppHandle) -> Result<(), String> {
             OVERLAY_WAS_VISIBLE.store(false, Ordering::SeqCst);
             OVERLAY_STYLES_APPLIED.store(false, Ordering::SeqCst);
             OVERLAY_LAST_CLICK_THROUGH_APPLIED.store(-1, Ordering::SeqCst);
+            OVERLAY_LAST_EDIT_MODE_APPLIED.store(-1, Ordering::SeqCst);
             if let Ok(mut last) = OVERLAY_LAST_RECT.lock() {
                 *last = None;
             }
@@ -1058,21 +1132,36 @@ fn sync_overlay_with_game_impl(app: &AppHandle) -> Result<(), String> {
         // from the game — without it, alt-tabbing back triggers a focus war
         // that flickers the screen edges and steals mouse input.
         let just_applied = !OVERLAY_STYLES_APPLIED.swap(true, Ordering::SeqCst);
-        if just_applied {
+        let edit_active = OVERLAY_EDIT_ACTIVE.load(Ordering::SeqCst);
+        let mode_spec = overlay_window_spec(if edit_active {
+            OverlayWindowKind::Edit
+        } else {
+            OverlayWindowKind::Visual
+        });
+        let desired_ct = mode_spec.click_through && OVERLAY_CLICK_THROUGH.load(Ordering::SeqCst);
+        let desired_ct_i8 = if desired_ct { 1 } else { 0 };
+        let edit_active_i8 = if edit_active { 1 } else { 0 };
+        let needs_style = just_applied
+            || OVERLAY_LAST_CLICK_THROUGH_APPLIED.load(Ordering::SeqCst) != desired_ct_i8
+            || OVERLAY_LAST_EDIT_MODE_APPLIED.load(Ordering::SeqCst) != edit_active_i8;
+        if needs_style {
             let ex_style = GetWindowLongW(hwnd_overlay, GWL_EXSTYLE);
-            let desired_ct = OVERLAY_CLICK_THROUGH.load(Ordering::SeqCst);
             let mut new_ex = ex_style
-                | WS_EX_LAYERED.0 as i32
                 | WS_EX_TOOLWINDOW.0 as i32
                 | WS_EX_NOACTIVATE.0 as i32;
+            if mode_spec.layered {
+                new_ex |= WS_EX_LAYERED.0 as i32;
+            } else {
+                new_ex &= !(WS_EX_LAYERED.0 as i32);
+            }
             if desired_ct {
                 new_ex |= WS_EX_TRANSPARENT.0 as i32;
             } else {
                 new_ex &= !(WS_EX_TRANSPARENT.0 as i32);
             }
             SetWindowLongW(hwnd_overlay, GWL_EXSTYLE, new_ex);
-            OVERLAY_LAST_CLICK_THROUGH_APPLIED
-                .store(if desired_ct { 1 } else { 0 }, Ordering::SeqCst);
+            OVERLAY_LAST_CLICK_THROUGH_APPLIED.store(desired_ct_i8, Ordering::SeqCst);
+            OVERLAY_LAST_EDIT_MODE_APPLIED.store(edit_active_i8, Ordering::SeqCst);
 
             // On some systems Tauri's `decorations: false` leaks chrome bits
             // (Aero Lite, Windhawk/ExplorerPatcher, classic theme), so strip
@@ -1160,21 +1249,6 @@ fn sync_overlay_with_game_impl(app: &AppHandle) -> Result<(), String> {
             0,
             SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
         );
-    }
-
-    let desired_ct = OVERLAY_CLICK_THROUGH.load(Ordering::SeqCst);
-    let desired_i8: i8 = if desired_ct { 1 } else { 0 };
-    if OVERLAY_LAST_CLICK_THROUGH_APPLIED.load(Ordering::SeqCst) != desired_i8 {
-        unsafe {
-            let ex_style = GetWindowLongW(hwnd_overlay, GWL_EXSTYLE);
-            let new_ex = if desired_ct {
-                ex_style | WS_EX_TRANSPARENT.0 as i32
-            } else {
-                ex_style & !(WS_EX_TRANSPARENT.0 as i32)
-            };
-            SetWindowLongW(hwnd_overlay, GWL_EXSTYLE, new_ex);
-        }
-        OVERLAY_LAST_CLICK_THROUGH_APPLIED.store(desired_i8, Ordering::SeqCst);
     }
 
     Ok(())
@@ -1594,7 +1668,7 @@ fn main() {
                 app_handle,
             );
 
-            // When the main window is closed, stop everything, close the overlay window
+            // When the main window is closed, stop everything, close overlay windows
             // and terminate the application.
             if let Some(main_window) = app.get_webview_window("main") {
                 let is_scanning_clone = is_scanning.clone();
@@ -1614,7 +1688,6 @@ fn main() {
                                 ));
                             }
                         }
-
                         let handle_opt = scanner_thread_clone.lock().unwrap().take();
                         let ah = app_handle_clone.clone();
                         thread::spawn(move || {
@@ -1656,6 +1729,7 @@ fn main() {
             get_weapon_base_catalog,
             sync_overlay_with_game,
             set_overlay_interactive,
+            set_overlay_edit_mode,
             parse_filter_dsl,
             validate_filter_dsl,
             explain_filter_line,

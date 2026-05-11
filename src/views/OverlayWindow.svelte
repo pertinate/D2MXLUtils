@@ -114,11 +114,14 @@
     listen<{ active: boolean }>('overlay-edit-mode', async (event) => {
       editActive = event.payload.active;
       try {
+        await invoke('set_overlay_edit_mode', {
+          active: editActive,
+        });
         await invoke('set_overlay_interactive', {
           active: editActive || historyVisible,
         });
       } catch (err) {
-        console.error('[Overlay] set_overlay_interactive failed:', err);
+        console.error('[Overlay] edit mode update failed:', err);
       }
     }).then(u => unlisteners.push(u));
 
@@ -127,7 +130,7 @@
       if (next === historyVisible) return;
       historyVisible = next;
       try {
-        await invoke('set_overlay_interactive', { active: historyVisible || editActive });
+        await invoke('set_overlay_interactive', { active: editActive || historyVisible });
       } catch (err) {
         console.error('[Overlay] set_overlay_interactive (history) failed:', err);
       }
@@ -173,9 +176,6 @@
     {compactName}
   />
   <AlwaysShowItemsIndicator />
-  {#if editActive}
-    <OverlayEditGrid />
-  {/if}
   {#if historyVisible}
     <LootHistoryPanel onClose={() => {
       historyVisible = false;
@@ -184,6 +184,9 @@
   {/if}
   {#if dpsMeterEnabled}
     <DpsMeter />
+  {/if}
+  {#if editActive}
+    <OverlayEditGrid />
   {/if}
 </main>
 
