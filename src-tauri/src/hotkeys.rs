@@ -661,71 +661,6 @@ pub fn update_loot_history_hotkey(
     Ok(())
 }
 
-/// Emits `toggle-dps-meter` on rising-edge press; overlay flips
-/// `settings.dpsMeter.enabled`.
-pub struct DpsMeterToggleHotkeyState {
-    is_running: Arc<AtomicBool>,
-    current_hotkey: Arc<std::sync::Mutex<HotkeyConfig>>,
-}
-
-impl DpsMeterToggleHotkeyState {
-    pub fn new() -> Self {
-        Self {
-            is_running: Arc::new(AtomicBool::new(false)),
-            current_hotkey: Arc::new(std::sync::Mutex::new(HotkeyConfig {
-                key_code: 0,
-                modifiers: 0,
-                display: "None".to_string(),
-            })),
-        }
-    }
-
-    pub fn start(&self, app_handle: AppHandle, hotkey: HotkeyConfig) {
-        if self.is_running.load(Ordering::SeqCst) {
-            log_info("DPS-meter toggle watcher already running, restarting with new config");
-            self.stop();
-            thread::sleep(std::time::Duration::from_millis(80));
-        }
-
-        if let Ok(mut current) = self.current_hotkey.lock() {
-            *current = hotkey.clone();
-        }
-
-        self.is_running.store(true, Ordering::SeqCst);
-        let is_running = self.is_running.clone();
-        let current_hotkey = self.current_hotkey.clone();
-
-        #[cfg(target_os = "windows")]
-        {
-            thread::spawn(move || {
-                rising_edge_watcher_windows(
-                    is_running,
-                    current_hotkey,
-                    app_handle,
-                    "toggle-dps-meter",
-                );
-            });
-        }
-
-        #[cfg(not(target_os = "windows"))]
-        {
-            log_info("DPS-meter toggle watcher is only supported on Windows");
-            let _ = (app_handle, current_hotkey);
-        }
-    }
-
-    pub fn stop(&self) {
-        self.is_running.store(false, Ordering::SeqCst);
-    }
-}
-
-impl Default for DpsMeterToggleHotkeyState {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// Emits `reset-dps-session` on rising-edge press.
 pub struct DpsMeterResetHotkeyState {
     is_running: Arc<AtomicBool>,
     current_hotkey: Arc<std::sync::Mutex<HotkeyConfig>>,
@@ -788,7 +723,6 @@ impl Default for DpsMeterResetHotkeyState {
     }
 }
 
-/// Shared rising-edge polling loop for the DPS-meter hotkeys.
 #[cfg(target_os = "windows")]
 fn rising_edge_watcher_windows(
     is_running: Arc<AtomicBool>,
@@ -829,20 +763,6 @@ fn rising_edge_watcher_windows(
     }
 
     log_info(&format!("'{}' hotkey watcher thread stopped", event_name));
-}
-
-#[tauri::command]
-pub fn update_dps_meter_toggle_hotkey(
-    state: tauri::State<DpsMeterToggleHotkeyState>,
-    app: AppHandle,
-    hotkey: HotkeyConfig,
-) -> Result<(), String> {
-    log_info(&format!(
-        "Updating DPS-meter toggle hotkey to: {}",
-        hotkey.display
-    ));
-    state.start(app, hotkey);
-    Ok(())
 }
 
 #[tauri::command]

@@ -14,14 +14,11 @@ use crate::logger::{error as log_error, info as log_info};
 
 const SETTINGS_FILE: &str = "settings.json";
 
-/// DPS-meter overlay panel settings. Persists across sessions.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct DpsMeterSettings {
     #[serde(default)]
     pub enabled: bool,
-    #[serde(default)]
-    pub hotkey_toggle: Option<HotkeyConfig>,
     #[serde(default)]
     pub hotkey_reset: Option<HotkeyConfig>,
 }
@@ -141,7 +138,6 @@ pub struct AppSettings {
     #[serde(default)]
     pub goblin_alert_slot: Option<u32>,
 
-    /// DPS meter overlay panel.
     #[serde(default)]
     pub dps_meter: DpsMeterSettings,
 

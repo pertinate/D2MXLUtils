@@ -34,8 +34,7 @@ use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, WindowEvent};
 
 use crate::hotkeys::{
-    DpsMeterResetHotkeyState, DpsMeterToggleHotkeyState, EditModeState, HotkeyState,
-    LootHistoryHotkeyState, RevealHiddenState,
+    DpsMeterResetHotkeyState, EditModeState, HotkeyState, LootHistoryHotkeyState, RevealHiddenState,
 };
 use crate::logger::{error as log_error, info as log_info};
 use crate::loot_history::{LootEntry, LootHistory, PickupState};
@@ -1611,7 +1610,6 @@ fn main() {
             let edit_mode_state = EditModeState::new();
             let reveal_hidden_state = RevealHiddenState::new(reveal_hidden_active.clone());
             let loot_history_hotkey_state = LootHistoryHotkeyState::new();
-            let dps_meter_toggle_state = DpsMeterToggleHotkeyState::new();
             let dps_meter_reset_state = DpsMeterResetHotkeyState::new();
 
             // Load settings and start hotkey listener
@@ -1619,7 +1617,6 @@ fn main() {
             let app_handle_for_edit_mode = app.handle().clone();
             let app_handle_for_reveal = app.handle().clone();
             let app_handle_for_loot_history = app.handle().clone();
-            let app_handle_for_dps_toggle = app.handle().clone();
             let app_handle_for_dps_reset = app.handle().clone();
             match settings::load_settings(app.handle().clone()) {
                 Ok(loaded_settings) => {
@@ -1635,9 +1632,6 @@ fn main() {
                         app_handle_for_loot_history,
                         loaded_settings.loot_history_hotkey,
                     );
-                    if let Some(hk) = loaded_settings.dps_meter.hotkey_toggle.clone() {
-                        dps_meter_toggle_state.start(app_handle_for_dps_toggle, hk);
-                    }
                     if let Some(hk) = loaded_settings.dps_meter.hotkey_reset.clone() {
                         dps_meter_reset_state.start(app_handle_for_dps_reset, hk);
                     }
@@ -1655,8 +1649,7 @@ fn main() {
                     reveal_hidden_state.start(app_handle_for_reveal, defaults.reveal_hidden_hotkey);
                     loot_history_hotkey_state
                         .start(app_handle_for_loot_history, defaults.loot_history_hotkey);
-                    // DPS-meter watchers stay asleep until the user binds one.
-                    let _ = (app_handle_for_dps_toggle, app_handle_for_dps_reset);
+                    let _ = app_handle_for_dps_reset;
                 }
             }
 
@@ -1664,7 +1657,6 @@ fn main() {
             app.manage(edit_mode_state);
             app.manage(reveal_hidden_state);
             app.manage(loot_history_hotkey_state);
-            app.manage(dps_meter_toggle_state);
             app.manage(dps_meter_reset_state);
 
             // Spawn auto-scanner monitor
@@ -1762,7 +1754,6 @@ fn main() {
             hotkeys::update_edit_mode_hotkey,
             hotkeys::update_reveal_hidden_hotkey,
             hotkeys::update_loot_history_hotkey,
-            hotkeys::update_dps_meter_toggle_hotkey,
             hotkeys::update_dps_meter_reset_hotkey,
             reset_dps_session,
             profiles::list_profiles,

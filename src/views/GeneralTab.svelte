@@ -3,20 +3,13 @@
   import { Button, HotkeyInput, Toggle } from '../components';
   import { settingsStore, updaterStore, type HotkeyConfig } from '../stores';
 
-  // Derived state from settings store
   let verboseFilterLogging = $derived(settingsStore.settings.verboseFilterLogging);
   let autoAlwaysShowItems = $derived(settingsStore.settings.autoAlwaysShowItems);
   let dpsMeterEnabled = $derived(settingsStore.settings.dpsMeter?.enabled ?? false);
 
   const UNBOUND_HOTKEY: HotkeyConfig = { keyCode: 0, modifiers: 0, display: 'None' };
 
-  type HotkeyId =
-    | 'toggleWindow'
-    | 'editOverlay'
-    | 'revealHidden'
-    | 'lootHistory'
-    | 'dpsMeterToggle'
-    | 'dpsMeterReset';
+  type HotkeyId = 'toggleWindow' | 'editOverlay' | 'revealHidden' | 'lootHistory' | 'dpsMeterReset';
   interface HotkeyRow {
     id: HotkeyId;
     label: string;
@@ -32,8 +25,8 @@
     },
     {
       id: 'editOverlay',
-      label: 'Reposition notifications',
-      hint: 'Hold to drag the drop-notification anchor on the overlay',
+      label: 'Reposition UI elements',
+      hint: 'Hold to drag the element anchor on the overlay',
       setter: (h) => settingsStore.setEditOverlayHotkey(h),
     },
     {
@@ -52,27 +45,18 @@
 
   const DPS_HOTKEY_ROWS: readonly HotkeyRow[] = [
     {
-      id: 'dpsMeterToggle',
-      label: 'Toggle DPS meter',
-      hint: 'Show/hide the DPS overlay panel',
-      setter: (h) => settingsStore.setDpsMeterToggleHotkey(h),
-    },
-    {
       id: 'dpsMeterReset',
       label: 'Reset DPS session',
-      hint: 'Clear rolling DPS, peak, total and kill counters',
+      hint: 'Clear DPS stats',
       setter: (h) => settingsStore.setDpsMeterResetHotkey(h),
     },
   ];
 
-  // Map id -> live HotkeyConfig from the store. Values stay reactive because
-  // the getter is invoked inside a $derived.
   const HOTKEY_GETTERS: Record<HotkeyId, () => HotkeyConfig> = {
     toggleWindow: () => settingsStore.settings.toggleWindowHotkey,
     editOverlay: () => settingsStore.settings.editOverlayHotkey,
     revealHidden: () => settingsStore.settings.revealHiddenHotkey,
     lootHistory: () => settingsStore.settings.lootHistoryHotkey,
-    dpsMeterToggle: () => settingsStore.settings.dpsMeter?.hotkeyToggle ?? UNBOUND_HOTKEY,
     dpsMeterReset: () => settingsStore.settings.dpsMeter?.hotkeyReset ?? UNBOUND_HOTKEY,
   };
   let hotkeyValues = $derived(
@@ -248,12 +232,7 @@
 
     <div class="setting-row">
       <div class="setting-info">
-        <span class="setting-label">Show overlay</span>
-        <span class="setting-hint"
-          >Live DPS / Kills/min / Peak / Total / Kills panel rendered on the in-game overlay.
-          Captures damage in both single-player and multiplayer. DoT damage (poison/burn) is
-          captured with one tick of delay.</span
-        >
+        <span class="setting-label">Show DPS meter</span>
       </div>
       <Toggle checked={dpsMeterEnabled} onchange={handleDpsMeterEnabledChange} />
     </div>

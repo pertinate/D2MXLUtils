@@ -40,7 +40,6 @@ export interface WidgetPosition {
 
 export interface DpsMeterSettings {
   enabled: boolean;
-  hotkeyToggle: HotkeyConfig | null;
   hotkeyReset: HotkeyConfig | null;
 }
 
@@ -79,7 +78,6 @@ export interface AppSettings {
   sounds: SoundSlot[];
   /** 1-based slot index played when a goblin appears nearby. */
   goblinAlertSlot: number | null;
-  /** DPS meter overlay panel. */
   dpsMeter: DpsMeterSettings;
   /** Centralized positions for repositionable overlay widgets, keyed by id.
    *  See `src/lib/overlay-widgets.ts`. Percent of overlay size. */
@@ -149,7 +147,6 @@ const DEFAULT_SETTINGS: AppSettings = {
   goblinAlertSlot: null,
   dpsMeter: {
     enabled: false,
-    hotkeyToggle: null,
     hotkeyReset: null,
   },
   widgetPositions: {},
@@ -401,16 +398,6 @@ class SettingsStore {
 
   setDpsMeterEnabled(enabled: boolean): void {
     this.set('dpsMeter', { ...this._settings.dpsMeter, enabled });
-  }
-
-  async setDpsMeterToggleHotkey(hotkey: HotkeyConfig): Promise<void> {
-    const stored = hotkey.keyCode === 0 && hotkey.modifiers === 0 ? null : hotkey;
-    this.set('dpsMeter', { ...this._settings.dpsMeter, hotkeyToggle: stored });
-    try {
-      await invoke('update_dps_meter_toggle_hotkey', { hotkey });
-    } catch (error) {
-      console.error('[Settings] Failed to update DPS-meter toggle hotkey:', error);
-    }
   }
 
   async setDpsMeterResetHotkey(hotkey: HotkeyConfig): Promise<void> {

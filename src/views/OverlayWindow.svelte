@@ -40,7 +40,6 @@
 
   let items = $state<ItemWithState[]>([]);
 
-  // Read settings from store (reactive)
   let notificationDuration = $derived(settingsStore.settings.notificationDuration);
   let notificationFontSize = $derived(settingsStore.settings.notificationFontSize);
   let notificationOpacity = $derived(settingsStore.settings.notificationOpacity);
@@ -49,10 +48,11 @@
 
   let editActive = $state(false);
   let historyVisible = $state(false);
+  let inGame = $state(false);
 
   let dpsMeterEnabled = $derived(settingsStore.settings.dpsMeter?.enabled ?? false);
+  let dpsMeterVisible = $derived(dpsMeterEnabled && inGame);
 
-  // Animation duration placeholder (currently 0 for instant, can be changed later)
   const EXIT_ANIMATION_DURATION = 0;
 
   const removalTimers = new Map<number, number>();
@@ -63,10 +63,8 @@
   }
 
   function startExitAnimation(unit_id: number) {
-    // Mark item as exiting to trigger animation (placeholder for future use)
     items = items.map((item) => (item.unit_id === unit_id ? { ...item, exiting: true } : item));
 
-    // Remove item after animation completes (instant for now)
     if (EXIT_ANIMATION_DURATION > 0) {
       setTimeout(() => {
         removeItem(unit_id);
@@ -77,17 +75,14 @@
   }
 
   function addItem(item: ItemDrop, duration: number) {
-    // Add item to the stack with exiting = false
     const itemWithState: ItemWithState = { ...item, exiting: false };
     items = [itemWithState, ...items].slice(0, 100);
 
-    // Clear existing timer if item already exists (shouldn't happen but just in case)
     const existingTimer = removalTimers.get(item.unit_id);
     if (existingTimer) {
       clearTimeout(existingTimer);
     }
 
-    // Set timer to start exit after duration
     const timer = window.setTimeout(() => {
       startExitAnimation(item.unit_id);
     }, duration);
@@ -101,7 +96,6 @@
 
     dpsMeterStore.initialize();
 
-    // Listen for item drops
     listen<ItemDrop>('item-drop', (event) => {
       addItem(event.payload, notificationDuration);
       const s = event.payload.filter?.sound;
@@ -138,9 +132,17 @@
       }
     }).then((u) => unlisteners.push(u));
 
-    listen('toggle-dps-meter', () => {
-      settingsStore.setDpsMeterEnabled(!(settingsStore.settings.dpsMeter?.enabled ?? false));
+    listen<string>('game-status', (event) => {
+      inGame = event.payload === 'ingame';
     }).then((u) => unlisteners.push(u));
+
+    invoke('get_game_status')
+      .then((status: unknown) => {
+        inGame = status === 'ingame';
+      })
+      .catch(() => {
+        inGame = false;
+      });
 
     listen('reset-dps-session', async () => {
       try {
@@ -150,7 +152,6 @@
       }
     }).then((u) => unlisteners.push(u));
 
-    // Periodically sync overlay position with Diablo II window
     syncTimer = window.setInterval(() => {
       invoke('sync_overlay_with_game').catch(() => {
         // Silent: game might not be running or not focused
@@ -162,7 +163,6 @@
       if (syncTimer !== null) {
         clearInterval(syncTimer);
       }
-      // Clear all removal timers
       removalTimers.forEach((timer) => clearTimeout(timer));
       removalTimers.clear();
     };
@@ -186,7 +186,7 @@
       }}
     />
   {/if}
-  {#if dpsMeterEnabled}
+  {#if dpsMeterVisible}
     <DpsMeter />
   {/if}
   {#if editActive}
