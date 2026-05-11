@@ -32,16 +32,16 @@ const FUNCTION_SIGNATURE: [u8; 9] = [0x83, 0xEC, 0x08, 0x53, 0x55, 0x8B, 0xD9, 0
 // Reattach metadata — written into our 256-byte trampoline buffer on fresh
 // inject, parsed by try_reattach on next launch if the JMP patch survived
 // a dirty shutdown. Layout at trampoline+METADATA_OFFSET:
-//   magic, version, g_call_counter, g_filter_enabled,
-//   g_show_all_loot, g_last_unit_id, g_show_mask, g_hide_mask,
-//   g_inspected_mask, g_force_show_all  (10 × u32 LE)
+//   magic, version, g_call_counter, g_show_all_loot,
+//   g_last_unit_id, g_show_mask, g_hide_mask, g_inspected_mask,
+//   g_force_show_all  (9 × u32 LE)
 const MAGIC: u32 = 0xD2FE11E7;
-const METADATA_VERSION: u32 = 4;
+const METADATA_VERSION: u32 = 5;
 const METADATA_OFFSET: usize = 216;
-const METADATA_SIZE: usize = 40;
+const METADATA_SIZE: usize = 36;
 // Trampoline offset of the replayed original 9 bytes; verified by debug_assert
 // in generate_trampoline_code.
-const DO_ORIGINAL_OFFSET: usize = 77;
+const DO_ORIGINAL_OFFSET: usize = 68;
 // Trampoline starts with `inc dword [counter]` = `FF 05 ...`.
 const TRAMPOLINE_FIRST_BYTE: u8 = 0xFF;
 
@@ -80,8 +80,6 @@ pub struct LootFilterHook {
     trampoline_address: usize,
     /// Address of global flag: show all loot (Alt mode)
     g_show_all_loot: usize,
-    /// Address of global flag: filter enabled
-    g_filter_enabled: usize,
     /// Address of call counter for debugging
     g_call_counter: usize,
     /// Address of last checked unit_id for debugging
@@ -109,7 +107,6 @@ impl LootFilterHook {
             hook_address: 0,
             trampoline_address: 0,
             g_show_all_loot: 0,
-            g_filter_enabled: 0,
             g_call_counter: 0,
             g_last_unit_id: 0,
             g_hide_mask: 0,
@@ -165,7 +162,6 @@ impl LootFilterHook {
         self.trampoline_address = self.alloc_remote(&ctx.process, 256)?;
 
         self.g_show_all_loot = self.alloc_remote(&ctx.process, 1)?;
-        self.g_filter_enabled = self.alloc_remote(&ctx.process, 1)?;
         self.g_force_show_all = self.alloc_remote(&ctx.process, 1)?;
         self.g_call_counter = self.alloc_remote(&ctx.process, 4)?;
         self.g_last_unit_id = self.alloc_remote(&ctx.process, 4)?;
@@ -181,7 +177,6 @@ impl LootFilterHook {
         ));
 
         ctx.process.write_buffer(self.g_show_all_loot, &[1u8])?;
-        ctx.process.write_buffer(self.g_filter_enabled, &[1u8])?;
         ctx.process.write_buffer(self.g_force_show_all, &[0u8])?;
         ctx.process
             .write_buffer(self.g_call_counter, &[0u8, 0u8, 0u8, 0u8])?;
@@ -329,13 +324,12 @@ impl LootFilterHook {
             }
 
             self.g_call_counter = u32::from_le_bytes(meta[8..12].try_into().unwrap()) as usize;
-            self.g_filter_enabled = u32::from_le_bytes(meta[12..16].try_into().unwrap()) as usize;
-            self.g_show_all_loot = u32::from_le_bytes(meta[16..20].try_into().unwrap()) as usize;
-            self.g_last_unit_id = u32::from_le_bytes(meta[20..24].try_into().unwrap()) as usize;
-            self.g_show_mask = u32::from_le_bytes(meta[24..28].try_into().unwrap()) as usize;
-            self.g_hide_mask = u32::from_le_bytes(meta[28..32].try_into().unwrap()) as usize;
-            self.g_inspected_mask = u32::from_le_bytes(meta[32..36].try_into().unwrap()) as usize;
-            self.g_force_show_all = u32::from_le_bytes(meta[36..40].try_into().unwrap()) as usize;
+            self.g_show_all_loot = u32::from_le_bytes(meta[12..16].try_into().unwrap()) as usize;
+            self.g_last_unit_id = u32::from_le_bytes(meta[16..20].try_into().unwrap()) as usize;
+            self.g_show_mask = u32::from_le_bytes(meta[20..24].try_into().unwrap()) as usize;
+            self.g_hide_mask = u32::from_le_bytes(meta[24..28].try_into().unwrap()) as usize;
+            self.g_inspected_mask = u32::from_le_bytes(meta[28..32].try_into().unwrap()) as usize;
+            self.g_force_show_all = u32::from_le_bytes(meta[32..36].try_into().unwrap()) as usize;
 
             self.hook_address = hit;
             self.trampoline_address = tramp;
@@ -362,13 +356,12 @@ impl LootFilterHook {
         buf[0..4].copy_from_slice(&MAGIC.to_le_bytes());
         buf[4..8].copy_from_slice(&METADATA_VERSION.to_le_bytes());
         buf[8..12].copy_from_slice(&(self.g_call_counter as u32).to_le_bytes());
-        buf[12..16].copy_from_slice(&(self.g_filter_enabled as u32).to_le_bytes());
-        buf[16..20].copy_from_slice(&(self.g_show_all_loot as u32).to_le_bytes());
-        buf[20..24].copy_from_slice(&(self.g_last_unit_id as u32).to_le_bytes());
-        buf[24..28].copy_from_slice(&(self.g_show_mask as u32).to_le_bytes());
-        buf[28..32].copy_from_slice(&(self.g_hide_mask as u32).to_le_bytes());
-        buf[32..36].copy_from_slice(&(self.g_inspected_mask as u32).to_le_bytes());
-        buf[36..40].copy_from_slice(&(self.g_force_show_all as u32).to_le_bytes());
+        buf[12..16].copy_from_slice(&(self.g_show_all_loot as u32).to_le_bytes());
+        buf[16..20].copy_from_slice(&(self.g_last_unit_id as u32).to_le_bytes());
+        buf[20..24].copy_from_slice(&(self.g_show_mask as u32).to_le_bytes());
+        buf[24..28].copy_from_slice(&(self.g_hide_mask as u32).to_le_bytes());
+        buf[28..32].copy_from_slice(&(self.g_inspected_mask as u32).to_le_bytes());
+        buf[32..36].copy_from_slice(&(self.g_force_show_all as u32).to_le_bytes());
         process.write_buffer(self.trampoline_address + METADATA_OFFSET, &buf)
     }
 
@@ -426,13 +419,6 @@ impl LootFilterHook {
     pub fn set_show_all(&self, ctx: &D2Context, show: bool) -> Result<(), String> {
         let value = if show { 1u8 } else { 0u8 };
         ctx.process.write_buffer(self.g_show_all_loot, &[value])
-    }
-
-    /// Enable or disable the filter
-    /// When disabled, original D2Sigma loot filter behavior is used
-    pub fn set_filter_enabled(&self, ctx: &D2Context, enabled: bool) -> Result<(), String> {
-        let value = if enabled { 1u8 } else { 0u8 };
-        ctx.process.write_buffer(self.g_filter_enabled, &[value])
     }
 
     pub fn set_force_show_all(&self, ctx: &D2Context, value: bool) -> Result<(), String> {
@@ -575,7 +561,6 @@ impl LootFilterHook {
     /// Returns via AL: 0 = hide item, 1 = show item
     ///
     /// Flow:
-    ///   if (!g_filter_enabled)          -> original code (built-in MXL filter decides)
     ///   if (g_force_show_all)           -> return 1 (hold-to-reveal hotkey)
     ///   if (!g_show_all_loot)           -> return 0 (hide everything)
     ///   if (pUnit == NULL)              -> original code
@@ -588,7 +573,6 @@ impl LootFilterHook {
         let mut code: Vec<u8> = Vec::new();
 
         let addr_counter = self.g_call_counter as u32;
-        let addr_filter = self.g_filter_enabled as u32;
         let addr_show_all = self.g_show_all_loot as u32;
         let addr_force_show = self.g_force_show_all as u32;
         let addr_unit_id = self.g_last_unit_id as u32;
@@ -601,17 +585,6 @@ impl LootFilterHook {
         code.push(0xFF);
         code.push(0x05);
         code.extend_from_slice(&addr_counter.to_le_bytes());
-
-        // cmp byte ptr [g_filter_enabled], 0    ; 80 3D <addr> 00
-        code.push(0x80);
-        code.push(0x3D);
-        code.extend_from_slice(&addr_filter.to_le_bytes());
-        code.push(0x00);
-
-        // je do_original                        ; 74 <rel8>
-        code.push(0x74);
-        let patch_je_filter = code.len();
-        code.push(0x00);
 
         // cmp byte ptr [g_force_show_all], 0    ; 80 3D <addr> 00
         code.push(0x80);
@@ -746,7 +719,6 @@ impl LootFilterHook {
             );
             code[at] = (rel as i8) as u8;
         };
-        patch_rel8(&mut code, patch_je_filter, do_original_offset);
         patch_rel8(&mut code, patch_jne_force_show, return_show_offset);
         patch_rel8(&mut code, patch_je_show_all, return_hide_offset);
         patch_rel8(&mut code, patch_je_null, do_original_offset);
@@ -850,14 +822,6 @@ impl LootFilterHook {
         &self,
         _ctx: &crate::process::D2Context,
         _show: bool,
-    ) -> Result<(), String> {
-        Err("Not supported on this OS".to_string())
-    }
-
-    pub fn set_filter_enabled(
-        &self,
-        _ctx: &crate::process::D2Context,
-        _enabled: bool,
     ) -> Result<(), String> {
         Err("Not supported on this OS".to_string())
     }

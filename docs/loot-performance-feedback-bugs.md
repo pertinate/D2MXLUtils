@@ -16,7 +16,7 @@ Users reported the following symptoms:
 
 ## Current Architecture Notes
 
-Markers are no longer in the same synchronous path as notification emission. `tick_items()` emits `item-drop` before marker work runs, and marker scanning is handled by a separate `marker-scanner` thread.
+Markers are no longer in the same synchronous path as notification emission. `tick_items()` emits `item-drop` before marker work runs, caches runtime filter decisions for scanned items, and marker scanning is handled by a separate `marker-scanner` thread.
 
 Relevant paths:
 
@@ -26,18 +26,24 @@ Relevant paths:
 - Hook masks for show/hide/inspected labels: `src-tauri/src/loot_filter_hook.rs`
 - Overlay notification and sound playback: `src/views/OverlayWindow.svelte`, `src/lib/sound-player.ts`
 
-Even though marker work is split out, it can still consume CPU, duplicate heavy filter matching, contend on the shared injector mutex, and mutate the live automap object tree.
+Even though marker work is split out, it can still consume CPU through BFS, contend on the shared injector mutex, and mutate the live automap object tree. After `3394422`, marker scanning no longer repeats heavy filter matching for marker candidates; it consumes cached item-scan decisions keyed by filter generation.
 
 ## Bugs
 
 ### P0: Large Filters Cause Multi-Second Delays
+
+Status after `3394422`:
+
+- Likely fixed for the two main identified hotspots. Runtime regex compilation was moved out of the per-item match path via `FilterConfig::prepare_for_matching()`, and marker scanning now reads `recent_filter_decisions` instead of running `filter.decide()` again.
+- Also addressed the no-map marker path: marker scanning clears existing markers once and returns before BFS when the loaded filter has no `map` rules.
+- Not fully proven by diagnostics yet. Reverse-order last-match rule scanning remains `O(rules)` per scanned item, marker BFS still runs every 30 ms when any `map` rule exists, and tick-duration/decision-duration percentiles still need measurement on large real filters.
 
 Symptoms:
 
 - With big filters, users see 3-10 second delays before loot notifications appear.
 - Some users report the system eventually stops working during long sessions.
 
-Evidence in code:
+Original evidence in code before `3394422`:
 
 - `src-tauri/src/rules/matching.rs:111-116` compiles `Regex::new()` during every pattern match.
 - `src-tauri/src/rules/mod.rs:278-279` scans rules in reverse order until the winning rule is found.
@@ -48,11 +54,11 @@ Root-cause hypothesis:
 - Runtime regex compilation is the main hotspot for large filters: `items x rules x patterns` can explode quickly.
 - Marker scanning doubles part of the matching cost for items that also need map-marker evaluation.
 
-Proposed fixes:
+Fix status:
 
-- Precompile rule patterns when parsing/loading the filter.
-- Add a filter decision cache keyed by stable item identity plus filter generation.
-- Short-circuit marker scanning when the filter has no `map` rules and no persistent markers.
+- Done in `3394422`: precompile rule patterns when loading the runtime filter.
+- Done in `3394422`: add a filter decision cache keyed by stable item identity plus filter generation.
+- Done in `3394422`: short-circuit marker scanning when the filter has no `map` rules, clearing existing app markers once.
 - Throttle marker BFS or run it adaptively instead of every 30 ms.
 
 Diagnostics to add:
@@ -98,6 +104,11 @@ Status after `ff4e2b5`:
 - Partially/directly addressed for the stale hook-mask path. The commit makes hook-mask cleanup independent from `seen_items`, retries failed hook-bit cleanup, preserves cleanup state across partial mask-clear failures, and clears stale opposing show/hide bits for current decisions.
 - Not fully closed as a whole bug class. Other possible causes listed below, especially stale `seen_items` notification/decision state and stale `recent_events`, still need separate investigation.
 
+Status after `3394422`:
+
+- Partially reduced risk from large-filter CPU stalls: expensive runtime regex compilation is removed from the hot path, and marker scanning no longer duplicates full filter matching.
+- Not fixed as a stale-state bug class. `seen_items`, `recent_events`, duplicate overlay events/sounds, and filter-change reprocessing semantics still need separate investigation.
+
 Symptoms:
 
 - Loot display/notifications can stop working during a session.
@@ -131,20 +142,25 @@ Diagnostics to add:
 
 ### P1: Off-Screen Drops Can Miss Markers and Notifications
 
+Status after `3394422`:
+
+- Not fixed. Marker placement no longer depends on `recent_events` directly, but it still depends on the item scanner having enriched the item and cached a filter decision in `recent_filter_decisions`.
+- BFS-only discoveries are still not promoted into item enrichment candidates, so off-screen items that only marker BFS sees can still miss notifications and markers.
+
 Symptoms:
 
 - Users suspect off-screen drops are the ones that fail to notify or receive markers.
 - Some drops are neither notified nor marked on the minimap.
 
-Evidence in code:
+Evidence in code after `3394422`:
 
 - `src-tauri/src/marker_scanner.rs:66` discovers item positions through BFS.
-- `src-tauri/src/marker_scanner.rs:100-102` only places a marker if the item has an enriched event in `recent_events`.
+- `src-tauri/src/marker_scanner.rs:130-142` only places a marker if the item has a current-generation cached decision in `recent_filter_decisions`.
 - `src-tauri/src/notifier.rs:684-689` prunes `recent_events` to items visible in the current item scan.
 
 Root-cause hypothesis:
 
-- The marker BFS can see item positions that the item scanner has not enriched. Since markers depend on `recent_events`, those BFS-only items are ignored. If the item scanner also does not see the item through `pPaths`, no notification is emitted either.
+- The marker BFS can see item positions that the item scanner has not enriched. Since markers now depend on `recent_filter_decisions`, BFS-only items are still ignored. If the item scanner also does not see the item through `pPaths`, no notification is emitted either.
 
 Proposed fixes:
 
@@ -160,6 +176,11 @@ Diagnostics to add:
 - Distance/depth at which missed drops are found.
 
 ### P1: Automap Icons Blink or Disappear
+
+Status after `3394422`:
+
+- Slightly reduced churn for filters with no `map` rules: marker scanning clears app markers once and skips BFS/reconciliation while no map rules exist.
+- Not fixed for active marker rules. The automap chain can still be detached/attached during marker input changes, generation transitions, tamper recovery, or empty marker snapshots.
 
 Symptoms:
 

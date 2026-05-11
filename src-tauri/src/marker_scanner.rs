@@ -54,7 +54,7 @@ impl MarkerScanner {
     }
 
     /// One BFS + marker reconciliation pass. No-op outside of a live game;
-    /// clears markers when filtering is disabled.
+    /// clears markers when the loaded filter has no map rules.
     pub fn tick(&mut self) {
         let p_player = self
             .state
@@ -63,15 +63,6 @@ impl MarkerScanner {
             .read_memory::<u32>(self.state.ctx.d2_client + d2client::PLAYER_UNIT)
             .unwrap_or(0);
         if p_player == 0 {
-            return;
-        }
-
-        if !self.state.filter_enabled.load(Ordering::Relaxed) {
-            if take_marker_clear_needed(&mut self.markers_cleared) {
-                if let Err(e) = self.map_marker.clear(&self.state.ctx) {
-                    log_error(&format!("map_marker clear (disabled) failed: {}", e));
-                }
-            }
             return;
         }
 

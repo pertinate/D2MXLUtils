@@ -38,7 +38,6 @@ pub struct SharedScannerState {
     pub injector: Arc<Mutex<D2Injector>>,
     pub filter_config: RwLock<Option<Arc<RwLock<FilterConfig>>>>,
     pub filter_generation: AtomicU64,
-    pub filter_enabled: AtomicBool,
     /// Enriched events keyed by `dwUnitId`; pruned to currently visible items.
     pub recent_events: RwLock<HashMap<u32, ItemDropEvent>>,
     /// Runtime-only filter decisions keyed by `dwUnitId`; marker thread uses
@@ -63,7 +62,6 @@ impl SharedScannerState {
             injector: Arc::new(Mutex::new(injector)),
             filter_config: RwLock::new(None),
             filter_generation: AtomicU64::new(0),
-            filter_enabled: AtomicBool::new(false),
             recent_events: RwLock::new(HashMap::new()),
             recent_filter_decisions: RwLock::new(HashMap::new()),
             clear_markers: AtomicBool::new(false),

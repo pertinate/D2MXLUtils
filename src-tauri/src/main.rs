@@ -81,8 +81,6 @@ struct AppState {
     should_auto_scan: Arc<AtomicBool>,
     /// Filter configuration shared with scanner thread
     filter_config: Arc<RwLock<Option<rules::FilterConfig>>>,
-    /// Whether filtering is enabled
-    filter_enabled: Arc<AtomicBool>,
     /// When true, scanner logs per-item filter decisions (noisy; opt-in for debugging).
     verbose_filter_logging: Arc<AtomicBool>,
     auto_always_show_items: Arc<AtomicBool>,
@@ -156,7 +154,6 @@ fn spawn_marker_thread(
 fn start_scanner_internal(
     is_scanning: Arc<AtomicBool>,
     filter_config: Arc<RwLock<Option<rules::FilterConfig>>>,
-    filter_enabled: Arc<AtomicBool>,
     verbose_filter_logging: Arc<AtomicBool>,
     auto_always_show_items: Arc<AtomicBool>,
     reveal_hidden_active: Arc<AtomicBool>,
@@ -315,7 +312,6 @@ fn start_scanner_internal(
                     scanner.on_filter_config_changed();
                 }
             }
-            scanner.set_filter_enabled(filter_enabled.load(Ordering::SeqCst));
             scanner.set_verbose_filter_logging(verbose_filter_logging.load(Ordering::SeqCst));
 
             // Seed the hook with the current flag so a key already held on
@@ -418,9 +414,6 @@ fn start_scanner_internal(
                     last_config_gen = current_gen;
                 }
 
-                // Sync filter_enabled state from AppState
-                let current_filter_enabled = filter_enabled.load(Ordering::SeqCst);
-                scanner.set_filter_enabled(current_filter_enabled);
                 scanner.set_verbose_filter_logging(
                     verbose_filter_logging.load(Ordering::SeqCst),
                 );
@@ -751,7 +744,6 @@ fn spawn_auto_scanner(
     is_scanning: Arc<AtomicBool>,
     should_auto_scan: Arc<AtomicBool>,
     filter_config: Arc<RwLock<Option<rules::FilterConfig>>>,
-    filter_enabled: Arc<AtomicBool>,
     verbose_filter_logging: Arc<AtomicBool>,
     auto_always_show_items: Arc<AtomicBool>,
     reveal_hidden_active: Arc<AtomicBool>,
@@ -772,7 +764,6 @@ fn spawn_auto_scanner(
                 start_scanner_internal(
                     is_scanning.clone(),
                     filter_config.clone(),
-                    filter_enabled.clone(),
                     verbose_filter_logging.clone(),
                     auto_always_show_items.clone(),
                     reveal_hidden_active.clone(),
@@ -858,12 +849,6 @@ fn set_filter_config(
         .filter_config_generation
         .fetch_add(1, Ordering::SeqCst);
     Ok(())
-}
-
-/// Enable or disable item filtering
-#[tauri::command]
-fn set_filter_enabled(enabled: bool, state: tauri::State<AppState>) {
-    state.filter_enabled.store(enabled, Ordering::SeqCst);
 }
 
 /// Enable or disable the per-item `[Filter] ...` log line.
@@ -1583,7 +1568,6 @@ fn main() {
                 is_scanning: Arc::new(AtomicBool::new(false)),
                 should_auto_scan: Arc::new(AtomicBool::new(true)),
                 filter_config: Arc::new(RwLock::new(initial_filter_config)),
-                filter_enabled: Arc::new(AtomicBool::new(true)),
                 verbose_filter_logging: Arc::new(AtomicBool::new(false)),
                 auto_always_show_items: Arc::new(AtomicBool::new(true)),
                 reveal_hidden_active: Arc::new(AtomicBool::new(false)),
@@ -1600,7 +1584,6 @@ fn main() {
             let is_scanning = state.is_scanning.clone();
             let should_auto_scan = state.should_auto_scan.clone();
             let filter_config = state.filter_config.clone();
-            let filter_enabled = state.filter_enabled.clone();
             let verbose_filter_logging = state.verbose_filter_logging.clone();
             let auto_always_show_items = state.auto_always_show_items.clone();
             let reveal_hidden_active = state.reveal_hidden_active.clone();
@@ -1690,7 +1673,6 @@ fn main() {
                 is_scanning.clone(),
                 should_auto_scan.clone(),
                 filter_config.clone(),
-                filter_enabled.clone(),
                 verbose_filter_logging.clone(),
                 auto_always_show_items.clone(),
                 reveal_hidden_active.clone(),
@@ -1757,7 +1739,6 @@ fn main() {
             get_loot_history,
             clear_loot_history,
             set_filter_config,
-            set_filter_enabled,
             set_verbose_filter_logging,
             set_auto_always_show_items,
             set_breakpoints_polling,

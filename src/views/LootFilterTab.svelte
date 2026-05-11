@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { RulesEditor, type ValidationResult } from '../editor';
   import { ProfileSelector } from '../components';
@@ -20,20 +19,11 @@
   let lastSavedText = $state('');
   let inflightSave: Promise<void> | null = null;
 
-  onMount(async () => {
-    try {
-      await invoke('set_filter_enabled', { enabled: true });
-    } catch (e) {
-      console.error('[LootFilterTab] Failed to enable filter:', e);
-    }
-  });
-
   async function syncFilterConfig() {
     try {
       const config = await invoke<any>('parse_filter_dsl', { text: dslText });
       hideAll = !!config.hide_all;
       await invoke('set_filter_config', { config });
-      await invoke('set_filter_enabled', { enabled: true });
     } catch (e) {
       console.error('[LootFilterTab] Failed to sync filter config:', e);
     }

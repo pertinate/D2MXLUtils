@@ -97,9 +97,8 @@ fn is_zero_u8(v: &u8) -> bool {
 /// Drop scanner that iterates through ground items
 #[cfg(target_os = "windows")]
 pub struct DropScanner {
-    /// Shared state bundle (ctx, injector, filter_config, filter_enabled,
-    /// recent_events). Owned by this thread; Arc cloned to marker thread in
-    /// Task 5.
+    /// Shared state bundle (ctx, injector, filter_config, recent_events).
+    /// Owned by this thread; Arc cloned to marker thread in Task 5.
     state: Arc<SharedScannerState>,
     /// Cache of already-seen item IDs (to avoid duplicate notifications)
     seen_items: HashSet<u32>,
@@ -282,28 +281,6 @@ impl DropScanner {
 
     pub fn on_filter_config_changed(&mut self) {
         self.clear_cache();
-    }
-
-    /// Enable or disable automatic filtering
-    pub fn set_filter_enabled(&mut self, enabled: bool) {
-        if self.state.filter_enabled.load(Ordering::Relaxed) == enabled {
-            return; // No change
-        }
-
-        self.state.filter_enabled.store(enabled, Ordering::Relaxed);
-
-        // Sync with the loot filter hook
-        if self.loot_hook.is_injected() {
-            if let Err(e) = self.loot_hook.set_filter_enabled(&self.state.ctx, enabled) {
-                log_error(&format!("Failed to set hook filter_enabled: {}", e));
-            }
-        }
-    }
-
-    /// Check if filtering is enabled
-    pub fn is_filter_enabled(&self) -> bool {
-        self.state.filter_enabled.load(Ordering::Relaxed)
-            && self.state.filter_config.read().unwrap().is_some()
     }
 
     pub fn set_verbose_filter_logging(&mut self, enabled: bool) {
@@ -667,81 +644,75 @@ impl DropScanner {
                     let event = self.to_event(scanned);
                     let unit_id = event.unit_id;
 
-                    // Apply filter if enabled
                     let mut event = event;
                     let mut should_emit = true;
                     let mut hook_bits_may_exist = false;
                     let mut cached_filter_decision = None;
-                    if self.state.filter_enabled.load(Ordering::Relaxed) {
-                        let filter_snapshot = {
-                            let guard = self.state.filter_config.read().unwrap();
-                            guard.as_ref().map(|filter_arc| {
-                                (
-                                    filter_arc.clone(),
-                                    self.state.filter_generation.load(Ordering::SeqCst),
-                                )
-                            })
-                        };
-                        if let Some((filter_arc, filter_generation)) = filter_snapshot {
-                            if let Ok(filter) = filter_arc.read() {
-                                let ctx = MatchContext::new(&event);
-                                let decision = filter.decide(&ctx);
-                                cached_filter_decision = Some(CachedFilterDecision::from_decision(
-                                    filter_generation,
-                                    &decision,
+                    let filter_snapshot = {
+                        let guard = self.state.filter_config.read().unwrap();
+                        guard.as_ref().map(|filter_arc| {
+                            (
+                                filter_arc.clone(),
+                                self.state.filter_generation.load(Ordering::SeqCst),
+                            )
+                        })
+                    };
+                    if let Some((filter_arc, filter_generation)) = filter_snapshot {
+                        if let Ok(filter) = filter_arc.read() {
+                            let ctx = MatchContext::new(&event);
+                            let decision = filter.decide(&ctx);
+                            cached_filter_decision = Some(CachedFilterDecision::from_decision(
+                                filter_generation,
+                                &decision,
+                            ));
+
+                            if self.verbose_filter_logging {
+                                let winner = filter.rules.iter().rev().find(|r| ctx.matches(r));
+                                let reason = match winner {
+                                    Some(r) => format!(
+                                        "winner={}",
+                                        r.name_pattern.as_deref().unwrap_or("<any>")
+                                    ),
+                                    None => {
+                                        format!("no rule matched (hide_all={})", filter.hide_all)
+                                    }
+                                };
+                                let vis_label = match decision.visibility {
+                                    Visibility::Show => "SHOW",
+                                    Visibility::Hide => "HIDE",
+                                    Visibility::Default => "DEFAULT",
+                                };
+                                let category_label = event
+                                    .category
+                                    .as_deref()
+                                    .map(|c| format!(" [{}]", c.replace('\n', "|")))
+                                    .unwrap_or_default();
+                                log_info(&format!(
+                                    "[Filter] \"{} {}\"{} ({}, class={}) -> {} notify={} | {}",
+                                    event.name,
+                                    event.base_name,
+                                    category_label,
+                                    event.quality,
+                                    event.class,
+                                    vis_label,
+                                    decision.notification.is_some(),
+                                    reason
                                 ));
+                            }
 
-                                if self.verbose_filter_logging {
-                                    let winner = filter.rules.iter().rev().find(|r| ctx.matches(r));
-                                    let reason = match winner {
-                                        Some(r) => format!(
-                                            "winner={}",
-                                            r.name_pattern.as_deref().unwrap_or("<any>")
-                                        ),
-                                        None => {
-                                            format!(
-                                                "no rule matched (hide_all={})",
-                                                filter.hide_all
-                                            )
-                                        }
-                                    };
-                                    let vis_label = match decision.visibility {
-                                        Visibility::Show => "SHOW",
-                                        Visibility::Hide => "HIDE",
-                                        Visibility::Default => "DEFAULT",
-                                    };
-                                    let category_label = event
-                                        .category
-                                        .as_deref()
-                                        .map(|c| format!(" [{}]", c.replace('\n', "|")))
-                                        .unwrap_or_default();
-                                    log_info(&format!(
-                                        "[Filter] \"{} {}\"{} ({}, class={}) -> {} notify={} | {}",
-                                        event.name,
-                                        event.base_name,
-                                        category_label,
-                                        event.quality,
-                                        event.class,
-                                        vis_label,
-                                        decision.notification.is_some(),
-                                        reason
-                                    ));
-                                }
+                            if self.loot_hook.is_injected() {
+                                hook_bits_may_exist = true;
+                                let failed_ops = self.apply_visibility_mask_ops(
+                                    event.unit_id,
+                                    visibility_mask_ops(decision.visibility),
+                                );
+                                self.pending_visibility_ops
+                                    .record_failed(event.unit_id, failed_ops);
+                            }
 
-                                if self.loot_hook.is_injected() {
-                                    hook_bits_may_exist = true;
-                                    let failed_ops = self.apply_visibility_mask_ops(
-                                        event.unit_id,
-                                        visibility_mask_ops(decision.visibility),
-                                    );
-                                    self.pending_visibility_ops
-                                        .record_failed(event.unit_id, failed_ops);
-                                }
-
-                                match decision.notification {
-                                    Some(n) => event.filter = Some(n),
-                                    None => should_emit = false,
-                                }
+                            match decision.notification {
+                                Some(n) => event.filter = Some(n),
+                                None => should_emit = false,
                             }
                         }
                     }
@@ -1553,16 +1524,10 @@ impl DropScanner {
 
     pub fn on_filter_config_changed(&mut self) {}
 
-    pub fn set_filter_enabled(&mut self, _enabled: bool) {}
-
     pub fn set_verbose_filter_logging(&mut self, _enabled: bool) {}
 
     pub fn set_force_show_all(&self, _value: bool) -> Result<(), String> {
         Ok(())
-    }
-
-    pub fn is_filter_enabled(&self) -> bool {
-        false
     }
 
     pub fn is_ingame(&self) -> bool {
