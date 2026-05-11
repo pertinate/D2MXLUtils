@@ -20,8 +20,7 @@ use windows::Win32::System::Diagnostics::Debug::{
 };
 use windows::Win32::System::LibraryLoader::{GetModuleHandleA, GetProcAddress};
 use windows::Win32::System::Memory::{
-    VirtualAllocEx, VirtualFreeEx, MEM_COMMIT, MEM_RELEASE, MEM_RESERVE,
-    PAGE_EXECUTE_READWRITE,
+    VirtualAllocEx, VirtualFreeEx, MEM_COMMIT, MEM_RELEASE, MEM_RESERVE, PAGE_EXECUTE_READWRITE,
 };
 
 use crate::logger::{error as log_error, info as log_info};
@@ -33,6 +32,14 @@ const RING_CAPACITY: u32 = 1024;
 /// 32 KB: trampoline + helper (~300 B) + ring (~16 KB), with headroom
 /// for a future RING_CAPACITY bump.
 const REGION_SIZE: usize = 0x8000;
+const EXPECTED_PROLOGUE: [u8; 5] = [0x8B, 0x44, 0x24, 0x0C, 0x53];
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PrologueState {
+    Original,
+    ExistingHook { trampoline_addr: usize },
+    Mismatch([u8; 5]),
+}
 
 #[derive(Debug, Clone, Copy)]
 pub struct HookEvent {
@@ -114,6 +121,67 @@ impl DpsHook {
         let ord10887_resume = ord10887_addr + 5;
         let difficulty_addr = d2client_base + d2client::DIFFICULTY;
 
+        // Read before allocating anything: if the previous app instance died
+        // after patching D2, the target will already be an E9 into our old
+        // trampoline and we should reattach rather than report an RVA mismatch.
+        let mut saved = [0u8; 5];
+        if let Err(e) = read_remote(process, ord10887_addr, &mut saved) {
+            return Err(format!("read current Ord10887 prologue: {}", e));
+        }
+
+        match classify_prologue(ord10887_addr, saved) {
+            PrologueState::Original => {}
+            PrologueState::ExistingHook { trampoline_addr } => {
+                let blob = trampoline::build(&trampoline::BuildParams {
+                    ord10887_resume,
+                    blob_base: trampoline_addr,
+                    ring_capacity: RING_CAPACITY,
+                    difficulty_addr,
+                    get_tick_count_addr,
+                });
+                let mut remote_prefix = vec![0u8; blob.ring_offset];
+                read_remote(process, trampoline_addr, &mut remote_prefix).map_err(|e| {
+                    format!(
+                        "read existing DPS trampoline at 0x{:08X}: {}",
+                        trampoline_addr, e
+                    )
+                })?;
+                if remote_prefix.as_slice() != &blob.bytes[..blob.ring_offset] {
+                    return Err(format!(
+                        "existing DPS hook at 0x{:08X} does not match this build; \
+                         restart Diablo II once to clear the stale hook",
+                        trampoline_addr
+                    ));
+                }
+
+                let ring_addr = trampoline_addr + blob.ring_offset;
+                let read_tail = read_ring_head(process, ring_addr)?;
+                *state_lock = Some(HookState {
+                    process,
+                    d2common_base,
+                    region: trampoline_addr,
+                    region_size: REGION_SIZE,
+                    ring_addr,
+                    ring_capacity: RING_CAPACITY,
+                    saved_bytes: EXPECTED_PROLOGUE,
+                    read_tail,
+                });
+
+                log_info(&format!(
+                    "DPS hook reattached: trampoline @ 0x{:08X}, ring @ 0x{:08X}, target @ 0x{:08X}",
+                    trampoline_addr, ring_addr, ord10887_addr
+                ));
+                return Ok(());
+            }
+            PrologueState::Mismatch(actual) => {
+                return Err(format!(
+                    "Ord10887 prologue mismatch: expected {:02X?}, got {:02X?} \
+                     — D2Common.dll may have been updated; RVA needs reverification",
+                    EXPECTED_PROLOGUE, actual
+                ));
+            }
+        }
+
         let region_ptr = unsafe {
             VirtualAllocEx(
                 process,
@@ -150,25 +218,6 @@ impl DpsHook {
         }
         unsafe {
             let _ = FlushInstructionCache(process, Some(region as *const c_void), blob.bytes.len());
-        }
-
-        // Save original prologue BEFORE patching, so uninstall can restore it.
-        let mut saved = [0u8; 5];
-        if let Err(e) = read_remote(process, ord10887_addr, &mut saved) {
-            let _ = unsafe { VirtualFreeEx(process, region_ptr, 0, MEM_RELEASE) };
-            return Err(format!("read original Ord10887 prologue: {}", e));
-        }
-        // If MXL has rebuilt D2Common, the prologue won't match and our
-        // saved bytes wouldn't make sense to restore. Bail loudly rather
-        // than risk bricking the game.
-        const EXPECTED_PROLOGUE: [u8; 5] = [0x8B, 0x44, 0x24, 0x0C, 0x53];
-        if saved != EXPECTED_PROLOGUE {
-            let _ = unsafe { VirtualFreeEx(process, region_ptr, 0, MEM_RELEASE) };
-            return Err(format!(
-                "Ord10887 prologue mismatch: expected {:02X?}, got {:02X?} \
-                 — D2Common.dll may have been updated; RVA needs reverification",
-                EXPECTED_PROLOGUE, saved
-            ));
         }
 
         // 5 bytes is well under a cache line, so the patch write is
@@ -327,4 +376,59 @@ pub(crate) fn read_remote(handle: HANDLE, addr: usize, buf: &mut [u8]) -> Result
         ));
     }
     Ok(())
+}
+
+fn classify_prologue(ord10887_addr: usize, prologue: [u8; 5]) -> PrologueState {
+    if prologue == EXPECTED_PROLOGUE {
+        return PrologueState::Original;
+    }
+
+    if prologue[0] != 0xE9 {
+        return PrologueState::Mismatch(prologue);
+    }
+
+    let rel = i32::from_le_bytes(prologue[1..5].try_into().unwrap());
+    let target = ord10887_addr as i64 + 5 + rel as i64;
+    if !(1..=u32::MAX as i64).contains(&target) {
+        return PrologueState::Mismatch(prologue);
+    }
+
+    PrologueState::ExistingHook {
+        trampoline_addr: target as usize,
+    }
+}
+
+fn read_ring_head(handle: HANDLE, ring_addr: usize) -> Result<u32, String> {
+    let mut header = [0u8; ring::HEADER_SIZE];
+    read_remote(handle, ring_addr, &mut header)
+        .map_err(|e| format!("read existing DPS ring header: {}", e))?;
+    let head = u32::from_le_bytes(header[0..4].try_into().unwrap());
+    let cap = u32::from_le_bytes(header[8..12].try_into().unwrap());
+    if cap != RING_CAPACITY {
+        return Err(format!(
+            "existing DPS ring capacity {} != expected {}",
+            cap, RING_CAPACITY
+        ));
+    }
+    Ok(head)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn e9_prologue_is_existing_hook_target_not_mismatch() {
+        let ord10887_addr = 0x6FD8_A740;
+        let trampoline_addr = 0x275D_0000;
+        let rel = (trampoline_addr as i64 - (ord10887_addr + 5) as i64) as i32;
+        let mut prologue = [0u8; 5];
+        prologue[0] = 0xE9;
+        prologue[1..5].copy_from_slice(&rel.to_le_bytes());
+
+        assert_eq!(
+            classify_prologue(ord10887_addr, prologue),
+            PrologueState::ExistingHook { trampoline_addr }
+        );
+    }
 }

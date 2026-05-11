@@ -706,6 +706,12 @@ fn start_scanner_internal(
                 thread::sleep(Duration::from_millis(30));
             }
 
+            // Restore the DPS prologue while the D2 process handle is still
+            // owned by SharedScannerState; otherwise Drop would run after the
+            // handle closes and leave the E9 patch behind.
+            #[cfg(target_os = "windows")]
+            let _ = shared_state.dps_hook.uninstall();
+
             // Signal the marker thread, then emit user-visible status before
             // joining — the join can block for one BFS tick.
             #[cfg(target_os = "windows")]
