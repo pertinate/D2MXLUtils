@@ -2,7 +2,7 @@
 //!
 //! This module implements the core NotifierMain logic from D2Stats.au3
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::sync::{Arc, RwLock};
 
 #[cfg(target_os = "windows")]
@@ -11,11 +11,15 @@ use std::sync::atomic::Ordering;
 #[cfg(target_os = "windows")]
 use crate::d2types::{ItemData, ScannedItem, UnitAny};
 #[cfg(target_os = "windows")]
+use crate::hook_bit_tracker::{
+    HookBitTracker, HookCleanupFailureLogThrottle, PendingVisibilityMaskOps,
+};
+#[cfg(target_os = "windows")]
 use crate::injection::D2Injector;
 #[cfg(target_os = "windows")]
 use crate::logger::{error as log_error, info as log_info};
 #[cfg(target_os = "windows")]
-use crate::loot_filter_hook::LootFilterHook;
+use crate::loot_filter_hook::{visibility_mask_ops, LootFilterHook, VisibilityMaskOp};
 #[cfg(target_os = "windows")]
 use crate::offsets::{
     d2client, d2common, d2sigma, data_tables, inventory, item_data, item_quality, items_txt, paths,
@@ -115,11 +119,10 @@ pub struct DropScanner {
     /// is `(unit_id, seed, new_state)`; `seed` is the stable key the
     /// frontend uses to find the row.
     last_pickup_updates: Vec<(u32, u32, crate::loot_history::PickupState)>,
-    /// Consecutive ticks each tracked unit_id was missing from the scan.
-    /// Hook-mask bits cleared once the count hits
-    /// `MISSED_TICKS_BEFORE_BIT_CLEAR`. The grace period absorbs transient
-    /// `read_memory` failures so we don't re-trigger the `bff0c0d` flicker.
-    missed_ticks: HashMap<u32, u8>,
+    /// Remote hook-mask bits need cleanup even after `seen_items` is pruned.
+    hook_bits: HookBitTracker,
+    hook_cleanup_failure_logs: HookCleanupFailureLogThrottle,
+    pending_visibility_ops: PendingVisibilityMaskOps,
     /// Monster `unit_id`s already announced via `goblin-detected`. Not
     /// pruned by current-scan presence — same `unit_id` only fires once
     /// per scanner lifetime. Cleared by `clear_cache()` (filter swap /
@@ -132,6 +135,18 @@ pub struct DropScanner {
 
 #[cfg(target_os = "windows")]
 const MISSED_TICKS_BEFORE_BIT_CLEAR: u8 = 2;
+#[cfg(target_os = "windows")]
+const HOOK_CLEANUP_FAILURE_LOG_SUPPRESSED_TICKS: u32 = 166;
+
+#[cfg(target_os = "windows")]
+fn visibility_mask_op_description(op: VisibilityMaskOp) -> &'static str {
+    match op {
+        VisibilityMaskOp::SetShow => "force-show",
+        VisibilityMaskOp::SetHide => "hide",
+        VisibilityMaskOp::ClearShow => "clear force-show bit for",
+        VisibilityMaskOp::ClearHide => "clear hide bit for",
+    }
+}
 
 #[derive(Debug, Clone)]
 struct ClassInfo {
@@ -245,7 +260,11 @@ impl DropScanner {
             set_cache: None,
             loot_history,
             last_pickup_updates: Vec::new(),
-            missed_ticks: HashMap::new(),
+            hook_bits: HookBitTracker::new(MISSED_TICKS_BEFORE_BIT_CLEAR),
+            hook_cleanup_failure_logs: HookCleanupFailureLogThrottle::new(
+                HOOK_CLEANUP_FAILURE_LOG_SUPPRESSED_TICKS,
+            ),
+            pending_visibility_ops: PendingVisibilityMaskOps::new(),
             seen_goblins: HashSet::new(),
             last_goblin_events: Vec::new(),
         })
@@ -345,19 +364,109 @@ impl DropScanner {
 
     pub fn clear_cache(&mut self) {
         self.seen_items.clear();
-        self.missed_ticks.clear();
         self.seen_goblins.clear();
+        self.pending_visibility_ops.clear();
         self.state.recent_events.write().unwrap().clear();
+        let mut hook_masks_cleared = !self.loot_hook.is_injected();
         if self.loot_hook.is_injected() {
+            hook_masks_cleared = true;
             if let Err(e) = self.loot_hook.clear_hidden_items(&self.state.ctx) {
                 log_error(&format!("Failed to clear hide mask: {}", e));
+                hook_masks_cleared = false;
             }
             if let Err(e) = self.loot_hook.clear_shown_items(&self.state.ctx) {
                 log_error(&format!("Failed to clear show mask: {}", e));
+                hook_masks_cleared = false;
             }
             if let Err(e) = self.loot_hook.clear_inspected_mask(&self.state.ctx) {
                 log_error(&format!("Failed to clear inspected mask: {}", e));
+                hook_masks_cleared = false;
             }
+        }
+        if hook_masks_cleared {
+            self.hook_bits.clear();
+            self.hook_cleanup_failure_logs.reset();
+        }
+    }
+
+    fn reset_departed_mask_collision(
+        &mut self,
+        unit_id: u32,
+        current_item_ids: &HashSet<u32>,
+    ) -> bool {
+        let colliding_departed_ids = self
+            .hook_bits
+            .departed_mask_collisions(unit_id, current_item_ids);
+        if colliding_departed_ids.is_empty() {
+            return true;
+        }
+
+        match self
+            .loot_hook
+            .clear_unit_id_bits(&self.state.ctx, &[unit_id])
+        {
+            Ok(()) => {
+                self.hook_bits.confirm_cleared(&colliding_departed_ids);
+                true
+            }
+            Err(e) => {
+                log_error(&format!(
+                    "Failed to reset stale hook bits for fresh colliding item {}: {}",
+                    unit_id, e
+                ));
+                false
+            }
+        }
+    }
+
+    fn retry_pending_visibility_ops(&mut self, unit_id: u32) {
+        if !self.loot_hook.is_injected() {
+            return;
+        }
+
+        let ops = self.pending_visibility_ops.take(unit_id);
+        if ops.is_empty() {
+            return;
+        }
+
+        let failed_ops = self.apply_visibility_mask_ops(unit_id, &ops);
+        self.pending_visibility_ops
+            .record_failed(unit_id, failed_ops);
+        self.hook_bits.mark_written(unit_id);
+    }
+
+    fn apply_visibility_mask_ops(
+        &self,
+        unit_id: u32,
+        ops: &[VisibilityMaskOp],
+    ) -> Vec<VisibilityMaskOp> {
+        let mut failed_ops = Vec::new();
+        for &op in ops {
+            if let Err(e) = self.apply_visibility_mask_op(unit_id, op) {
+                log_error(&format!(
+                    "Failed to {} item {}: {}",
+                    visibility_mask_op_description(op),
+                    unit_id,
+                    e
+                ));
+                failed_ops.push(op);
+            }
+        }
+        failed_ops
+    }
+
+    fn apply_visibility_mask_op(&self, unit_id: u32, op: VisibilityMaskOp) -> Result<(), String> {
+        match op {
+            VisibilityMaskOp::SetShow => self.loot_hook.add_shown_unit_id(&self.state.ctx, unit_id),
+            VisibilityMaskOp::SetHide => {
+                self.loot_hook.add_hidden_unit_id(&self.state.ctx, unit_id)
+            }
+            VisibilityMaskOp::ClearShow => {
+                self.loot_hook.clear_shown_unit_id(&self.state.ctx, unit_id)
+            }
+            VisibilityMaskOp::ClearHide => self
+                .loot_hook
+                .clear_hidden_unit_id(&self.state.ctx, unit_id),
         }
     }
 
@@ -469,7 +578,7 @@ impl DropScanner {
 
         let mut current_item_ids: HashSet<u32> = HashSet::new();
 
-        // Iterate through each path/room
+        // Two passes keep cleanup aware of current ids without storing pUnit snapshots.
         for i in 0..i_paths {
             let p_path = match self.state.ctx.process.read_memory::<u32>(p_paths + 4 * i) {
                 Ok(p) if p != 0 => p as usize,
@@ -486,7 +595,6 @@ impl DropScanner {
                 _ => continue,
             };
 
-            // Iterate through units in this room
             while p_unit != 0 {
                 let unit: UnitAny = match self.state.ctx.process.read_memory(p_unit as usize) {
                     Ok(u) => u,
@@ -505,6 +613,49 @@ impl DropScanner {
                     });
                 }
 
+                p_unit = unit.p_next_unit;
+            }
+        }
+
+        for i in 0..i_paths {
+            let p_path = match self.state.ctx.process.read_memory::<u32>(p_paths + 4 * i) {
+                Ok(p) if p != 0 => p as usize,
+                _ => continue,
+            };
+
+            let mut p_unit = match self
+                .state
+                .ctx
+                .process
+                .read_memory::<u32>(p_path + paths::PATH_TO_UNIT)
+            {
+                Ok(p) if p != 0 => p,
+                _ => continue,
+            };
+
+            while p_unit != 0 {
+                let unit: UnitAny = match self.state.ctx.process.read_memory(p_unit as usize) {
+                    Ok(u) => u,
+                    Err(_) => break,
+                };
+                let next_unit = unit.p_next_unit;
+
+                if unit.unit_type != unit_type::ITEM {
+                    p_unit = next_unit;
+                    continue;
+                }
+                current_item_ids.insert(unit.unit_id);
+
+                if self.loot_hook.is_injected() {
+                    let already_seen = self.seen_items.contains(&unit.unit_id);
+                    if already_seen {
+                        self.retry_pending_visibility_ops(unit.unit_id);
+                    } else if !self.reset_departed_mask_collision(unit.unit_id, &current_item_ids) {
+                        p_unit = next_unit;
+                        continue;
+                    }
+                }
+
                 if let Some(scanned) = self.scan_unit(p_unit, &unit) {
                     let event = self.to_event(scanned);
                     let unit_id = event.unit_id;
@@ -512,6 +663,7 @@ impl DropScanner {
                     // Apply filter if enabled
                     let mut event = event;
                     let mut should_emit = true;
+                    let mut hook_bits_may_exist = false;
                     if self.state.filter_enabled.load(Ordering::Relaxed) {
                         let filter_arc = self.state.filter_config.read().unwrap().clone();
                         if let Some(ref filter_arc) = filter_arc {
@@ -526,10 +678,12 @@ impl DropScanner {
                                             "winner={}",
                                             r.name_pattern.as_deref().unwrap_or("<any>")
                                         ),
-                                        None => format!(
-                                            "no rule matched (hide_all={})",
-                                            filter.hide_all
-                                        ),
+                                        None => {
+                                            format!(
+                                                "no rule matched (hide_all={})",
+                                                filter.hide_all
+                                            )
+                                        }
                                     };
                                     let vis_label = match decision.visibility {
                                         Visibility::Show => "SHOW",
@@ -555,31 +709,13 @@ impl DropScanner {
                                 }
 
                                 if self.loot_hook.is_injected() {
-                                    match decision.visibility {
-                                        Visibility::Show => {
-                                            if let Err(e) = self
-                                                .loot_hook
-                                                .add_shown_unit_id(&self.state.ctx, event.unit_id)
-                                            {
-                                                log_error(&format!(
-                                                    "Failed to force-show item {}: {}",
-                                                    event.unit_id, e
-                                                ));
-                                            }
-                                        }
-                                        Visibility::Hide => {
-                                            if let Err(e) = self
-                                                .loot_hook
-                                                .add_hidden_unit_id(&self.state.ctx, event.unit_id)
-                                            {
-                                                log_error(&format!(
-                                                    "Failed to hide item {}: {}",
-                                                    event.unit_id, e
-                                                ));
-                                            }
-                                        }
-                                        Visibility::Default => {}
-                                    }
+                                    hook_bits_may_exist = true;
+                                    let failed_ops = self.apply_visibility_mask_ops(
+                                        event.unit_id,
+                                        visibility_mask_ops(decision.visibility),
+                                    );
+                                    self.pending_visibility_ops
+                                        .record_failed(event.unit_id, failed_ops);
                                 }
 
                                 match decision.notification {
@@ -630,10 +766,9 @@ impl DropScanner {
                         events.push(event);
                     }
 
-                    // Must run AFTER show/hide bits: otherwise the game thread
-                    // could see inspected=1 with no decision yet and fall through
-                    // to MXL's default (= flash the label).
+                    // Keep after show/hide writes: inspected releases the trampoline gate.
                     if self.loot_hook.is_injected() {
+                        hook_bits_may_exist = true;
                         if let Err(e) = self
                             .loot_hook
                             .add_inspected_unit_id(&self.state.ctx, unit_id)
@@ -641,47 +776,52 @@ impl DropScanner {
                             log_error(&format!("Failed to mark item {} inspected: {}", unit_id, e));
                         }
                     }
+                    if hook_bits_may_exist {
+                        self.hook_bits.mark_written(unit_id);
+                    }
                 }
-
-                p_unit = unit.p_next_unit;
+                p_unit = next_unit;
             }
+        }
+
+        // Keep hook-mask cleanup independent from `seen_items` pruning.
+        let to_clear = self.hook_bits.plan_clears(&current_item_ids);
+        if !to_clear.is_empty() && self.loot_hook.is_injected() {
+            match self
+                .loot_hook
+                .clear_unit_id_bits(&self.state.ctx, &to_clear)
+            {
+                Ok(()) => {
+                    self.hook_bits.confirm_cleared(&to_clear);
+                    self.hook_cleanup_failure_logs.reset();
+                }
+                Err(e) => {
+                    if let Some(suppressed) = self.hook_cleanup_failure_logs.record_failure() {
+                        let suppressed = if suppressed > 0 {
+                            format!(" (suppressed {} repeated cleanup failures)", suppressed)
+                        } else {
+                            String::new()
+                        };
+                        log_error(&format!(
+                            "Failed to clear hook bits for {} departed items ({} overdue, {} tracked): {}{}",
+                            to_clear.len(),
+                            self.hook_bits.overdue_len(),
+                            self.hook_bits.tracked_len(),
+                            e,
+                            suppressed
+                        ));
+                    }
+                }
+            }
+        } else {
+            self.hook_cleanup_failure_logs.reset();
         }
 
         // dwUnitId stays stable when an item moves between ground and
         // inventory, so without pruning a re-dropped item would never notify.
-        // Age missing-tick counters before the retain — items absent for
-        // `MISSED_TICKS_BEFORE_BIT_CLEAR` consecutive ticks have their
-        // hook-mask bits batch-cleared so old decisions don't outlive the
-        // physical item and alias new drops via `unit_id & MASK_INDEX_BITS`.
-        let mut to_clear: Vec<u32> = Vec::new();
-        for &id in self.seen_items.iter() {
-            if current_item_ids.contains(&id) {
-                self.missed_ticks.remove(&id);
-            } else {
-                let count = self.missed_ticks.entry(id).or_insert(0);
-                *count = count.saturating_add(1);
-                if *count >= MISSED_TICKS_BEFORE_BIT_CLEAR {
-                    to_clear.push(id);
-                }
-            }
-        }
-        for id in &to_clear {
-            self.missed_ticks.remove(id);
-        }
-        if !to_clear.is_empty() && self.loot_hook.is_injected() {
-            if let Err(e) = self
-                .loot_hook
-                .clear_unit_id_bits(&self.state.ctx, &to_clear)
-            {
-                log_error(&format!(
-                    "Failed to clear hook bits for {} departed items: {}",
-                    to_clear.len(),
-                    e
-                ));
-            }
-        }
-
         self.seen_items.retain(|id| current_item_ids.contains(id));
+        self.pending_visibility_ops
+            .retain_current(&current_item_ids);
         self.state
             .recent_events
             .write()

@@ -13,6 +13,7 @@ use windows::Win32::System::Memory::{
 use crate::logger::{error as log_error, info as log_info};
 #[cfg(target_os = "windows")]
 use crate::process::{D2Context, ProcessHandle};
+use crate::rules::Visibility;
 
 /// Number of bytes to patch at the hook point
 /// Must match exactly the size of copied instructions in generate_trampoline_code()
@@ -46,6 +47,29 @@ const TRAMPOLINE_FIRST_BYTE: u8 = 0xFF;
 
 pub(crate) const MASK_BYTES: usize = 8192;
 const MASK_INDEX_BITS: u32 = 0xFFFF;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum VisibilityMaskOp {
+    SetShow,
+    SetHide,
+    ClearShow,
+    ClearHide,
+}
+
+const SHOW_VISIBILITY_MASK_OPS: [VisibilityMaskOp; 2] =
+    [VisibilityMaskOp::SetShow, VisibilityMaskOp::ClearHide];
+const HIDE_VISIBILITY_MASK_OPS: [VisibilityMaskOp; 2] =
+    [VisibilityMaskOp::SetHide, VisibilityMaskOp::ClearShow];
+const DEFAULT_VISIBILITY_MASK_OPS: [VisibilityMaskOp; 2] =
+    [VisibilityMaskOp::ClearShow, VisibilityMaskOp::ClearHide];
+
+pub(crate) fn visibility_mask_ops(visibility: Visibility) -> &'static [VisibilityMaskOp] {
+    match visibility {
+        Visibility::Show => &SHOW_VISIBILITY_MASK_OPS,
+        Visibility::Hide => &HIDE_VISIBILITY_MASK_OPS,
+        Visibility::Default => &DEFAULT_VISIBILITY_MASK_OPS,
+    }
+}
 
 /// Loot filter hook manager
 #[cfg(target_os = "windows")]
@@ -416,7 +440,6 @@ impl LootFilterHook {
         ctx.process.write_buffer(self.g_force_show_all, &[byte])
     }
 
-    /// Add a unit_id to the hide mask (item will be hidden)
     pub fn add_hidden_unit_id(&self, ctx: &D2Context, unit_id: u32) -> Result<(), String> {
         let bit_index = (unit_id & MASK_INDEX_BITS) as usize;
         let byte_index = bit_index >> 3;
@@ -425,17 +448,20 @@ impl LootFilterHook {
         let addr = self.g_hide_mask + byte_index;
         let current = ctx.process.read_memory::<u8>(addr)?;
         let new_byte = current | (1u8 << bit_offset);
-        ctx.process.write_buffer(addr, &[new_byte])
+        ctx.process.write_buffer(addr, &[new_byte])?;
+        Ok(())
     }
 
-    /// Clear the entire hide mask (show all items)
     pub fn clear_hidden_items(&self, ctx: &D2Context) -> Result<(), String> {
         let zeros = vec![0u8; MASK_BYTES];
-        ctx.process.write_buffer(self.g_hide_mask, &zeros)
+        ctx.process.write_buffer(self.g_hide_mask, &zeros)?;
+        Ok(())
     }
 
-    /// Add a unit_id to the show mask so the trampoline force-shows it
-    /// (returns AL=1 regardless of game's built-in filter decision).
+    pub fn clear_hidden_unit_id(&self, ctx: &D2Context, unit_id: u32) -> Result<(), String> {
+        self.clear_mask_unit_id(ctx, self.g_hide_mask, unit_id)
+    }
+
     pub fn add_shown_unit_id(&self, ctx: &D2Context, unit_id: u32) -> Result<(), String> {
         let bit = (unit_id & MASK_INDEX_BITS) as usize;
         let byte_index = bit / 8;
@@ -444,13 +470,18 @@ impl LootFilterHook {
         let addr = self.g_show_mask + byte_index;
         let current = ctx.process.read_memory::<u8>(addr)?;
         let new_byte = current | (1u8 << bit_offset);
-        ctx.process.write_buffer(addr, &[new_byte])
+        ctx.process.write_buffer(addr, &[new_byte])?;
+        Ok(())
     }
 
-    /// Clear the entire show mask (stop force-showing any items)
     pub fn clear_shown_items(&self, ctx: &D2Context) -> Result<(), String> {
         let zeros = vec![0u8; MASK_BYTES];
-        ctx.process.write_buffer(self.g_show_mask, &zeros)
+        ctx.process.write_buffer(self.g_show_mask, &zeros)?;
+        Ok(())
+    }
+
+    pub fn clear_shown_unit_id(&self, ctx: &D2Context, unit_id: u32) -> Result<(), String> {
+        self.clear_mask_unit_id(ctx, self.g_show_mask, unit_id)
     }
 
     /// Until this bit is set, the trampoline hides the unit — prevents label
@@ -463,16 +494,16 @@ impl LootFilterHook {
         let addr = self.g_inspected_mask + byte_index;
         let current = ctx.process.read_memory::<u8>(addr)?;
         let new_byte = current | (1u8 << bit_offset);
-        ctx.process.write_buffer(addr, &[new_byte])
+        ctx.process.write_buffer(addr, &[new_byte])?;
+        Ok(())
     }
 
     pub fn clear_inspected_mask(&self, ctx: &D2Context) -> Result<(), String> {
         let zeros = vec![0u8; MASK_BYTES];
-        ctx.process.write_buffer(self.g_inspected_mask, &zeros)
+        ctx.process.write_buffer(self.g_inspected_mask, &zeros)?;
+        Ok(())
     }
 
-    /// Batch-clear show/hide/inspected bits for unit_ids that left the
-    /// ground. One read+write per mask instead of per-id round-trips.
     pub fn clear_unit_id_bits(&self, ctx: &D2Context, unit_ids: &[u32]) -> Result<(), String> {
         if unit_ids.is_empty() {
             return Ok(());
@@ -495,6 +526,27 @@ impl LootFilterHook {
                 ctx.process.write_buffer(mask_addr, &buf)?;
             }
         }
+        Ok(())
+    }
+
+    fn clear_mask_unit_id(
+        &self,
+        ctx: &D2Context,
+        mask_addr: usize,
+        unit_id: u32,
+    ) -> Result<(), String> {
+        let bit = (unit_id & MASK_INDEX_BITS) as usize;
+        let byte_index = bit >> 3;
+        let bit_offset = bit & 7;
+        let bit_mask = 1u8 << bit_offset;
+        let addr = mask_addr + byte_index;
+
+        let current = ctx.process.read_memory::<u8>(addr)?;
+        if current & bit_mask == 0 {
+            return Ok(());
+        }
+
+        ctx.process.write_buffer(addr, &[current & !bit_mask])?;
         Ok(())
     }
 
@@ -746,6 +798,32 @@ impl Default for LootFilterHook {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::rules::Visibility;
+
+    #[test]
+    fn visibility_mask_ops_clear_stale_opposing_bits() {
+        for (visibility, expected) in [
+            (
+                Visibility::Show,
+                &[VisibilityMaskOp::SetShow, VisibilityMaskOp::ClearHide][..],
+            ),
+            (
+                Visibility::Hide,
+                &[VisibilityMaskOp::SetHide, VisibilityMaskOp::ClearShow][..],
+            ),
+            (
+                Visibility::Default,
+                &[VisibilityMaskOp::ClearShow, VisibilityMaskOp::ClearHide][..],
+            ),
+        ] {
+            assert_eq!(visibility_mask_ops(visibility), expected);
+        }
+    }
+}
+
 // Stub for non-Windows (compilation only)
 #[cfg(not(target_os = "windows"))]
 pub struct LootFilterHook;
@@ -804,6 +882,14 @@ impl LootFilterHook {
         Err("Not supported on this OS".to_string())
     }
 
+    pub fn clear_hidden_unit_id(
+        &self,
+        _ctx: &crate::process::D2Context,
+        _unit_id: u32,
+    ) -> Result<(), String> {
+        Err("Not supported on this OS".to_string())
+    }
+
     pub fn add_shown_unit_id(
         &self,
         _ctx: &crate::process::D2Context,
@@ -813,6 +899,14 @@ impl LootFilterHook {
     }
 
     pub fn clear_shown_items(&self, _ctx: &crate::process::D2Context) -> Result<(), String> {
+        Err("Not supported on this OS".to_string())
+    }
+
+    pub fn clear_shown_unit_id(
+        &self,
+        _ctx: &crate::process::D2Context,
+        _unit_id: u32,
+    ) -> Result<(), String> {
         Err("Not supported on this OS".to_string())
     }
 

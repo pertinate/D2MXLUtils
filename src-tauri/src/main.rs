@@ -4,6 +4,7 @@ mod breakpoints;
 mod d2types;
 mod dps_hook;
 mod dps_meter;
+mod hook_bit_tracker;
 mod hotkeys;
 mod injection;
 mod items_cache;
