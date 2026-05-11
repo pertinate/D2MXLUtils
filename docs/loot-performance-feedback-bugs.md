@@ -26,7 +26,7 @@ Relevant paths:
 - Hook masks for show/hide/inspected labels: `src-tauri/src/loot_filter_hook.rs`
 - Overlay notification and sound playback: `src/views/OverlayWindow.svelte`, `src/lib/sound-player.ts`
 
-Even though marker work is split out, it can still consume CPU through BFS, contend on the shared injector mutex, and mutate the live automap object tree. After `3394422`, marker scanning no longer repeats heavy filter matching for marker candidates; it consumes cached item-scan decisions keyed by filter generation.
+Even though marker work is split out, it can still consume CPU through BFS, contend on the shared injector mutex, and mutate the live automap object tree. After `3394422`, marker scanning no longer repeats heavy filter matching for marker candidates; it consumes cached item-scan decisions keyed by filter generation. After `f634595`, marker BFS also publishes raw item candidates into shared scanner state, and the item scanner consumes verified BFS-only candidates through the normal enrichment/filter/notification path.
 
 ## Bugs
 
@@ -36,7 +36,12 @@ Status after `3394422`:
 
 - Likely fixed for the two main identified hotspots. Runtime regex compilation was moved out of the per-item match path via `FilterConfig::prepare_for_matching()`, and marker scanning now reads `recent_filter_decisions` instead of running `filter.decide()` again.
 - Also addressed the no-map marker path: marker scanning clears existing markers once and returns before BFS when the loaded filter has no `map` rules.
-- Not fully proven by diagnostics yet. Reverse-order last-match rule scanning remains `O(rules)` per scanned item, marker BFS still runs every 30 ms when any `map` rule exists, and tick-duration/decision-duration percentiles still need measurement on large real filters.
+- Not fully proven by diagnostics yet. Reverse-order last-match rule scanning remains `O(rules)` per scanned item, marker BFS still runs whenever any `map` rule exists, and tick-duration/decision-duration percentiles still need measurement on large real filters.
+
+Status after `f634595`:
+
+- Partially reduced active-marker overhead: marker BFS/reconciliation now runs every 100 ms instead of every 30 ms.
+- Not a full performance fix. BFS still scans loaded room graphs whenever any `map` rule exists, and no runtime duration percentiles were added in this commit.
 
 Symptoms:
 
@@ -59,7 +64,8 @@ Fix status:
 - Done in `3394422`: precompile rule patterns when loading the runtime filter.
 - Done in `3394422`: add a filter decision cache keyed by stable item identity plus filter generation.
 - Done in `3394422`: short-circuit marker scanning when the filter has no `map` rules, clearing existing app markers once.
-- Throttle marker BFS or run it adaptively instead of every 30 ms.
+- Done in `f634595`: throttle marker BFS/reconciliation from 30 ms to 100 ms.
+- Consider adaptive marker BFS scheduling if 100 ms is still too costly on crowded maps.
 
 Diagnostics to add:
 
@@ -79,6 +85,11 @@ Status after `3394422`:
 
 - Partially reduced risk from large-filter CPU stalls: expensive runtime regex compilation is removed from the hot path, and marker scanning no longer duplicates full filter matching.
 - Not fixed as a stale-state bug class. `recent_events`, duplicate overlay events/sounds, and filter-change reprocessing semantics still need separate investigation.
+
+Status after `f634595`:
+
+- Partially addressed for one off-screen/stale-state path: verified BFS-visible items are now included in the item scanner's current-item lifecycle, so `recent_events` and `recent_filter_decisions` for those items are not pruned solely because the `pPaths` pass missed them.
+- Not fixed as the broader stuck-cache bug class. Stale `recent_events`, hook state, duplicate sounds, and filter-change reprocessing semantics still need separate investigation.
 
 Symptoms:
 
@@ -111,13 +122,13 @@ Diagnostics to add:
 
 ### P1: Off-Screen Drops Can Miss Markers and Notifications
 
-Status after BFS-candidate handoff:
+Status after `f634595`:
 
 - Likely fixed for filters with active `map` rules. Marker BFS now publishes raw item candidates (`unit_id`, `p_unit`, coordinates) into shared scanner state, and `DropScanner::tick_items()` consumes verified BFS-only candidates through the same enrichment/filter/notification path used by `pPaths` items.
 - Marker placement still depends on current-generation `recent_filter_decisions`, but BFS-only items can now create those decisions on the item-scanner side instead of being ignored forever.
 - The current-item lifecycle now includes verified BFS candidates, so cached events/decisions for BFS-visible items are not pruned solely because the `pPaths` pass missed them.
 - Remaining limitation: if no `map` rules are loaded, marker BFS is intentionally skipped for performance, so this handoff does not add a new off-screen discovery pass for notification-only filters.
-- Not fully proven by diagnostics yet. We still need live counters comparing BFS ids to `pPaths` ids to confirm frequency and coverage in real sessions.
+- Not fully proven by diagnostics yet. We still need live counters comparing BFS ids to `pPaths` ids to confirm frequency and coverage in real sessions; the temporary `[BFS handoff]` log was removed before the commit.
 
 Symptoms:
 
@@ -153,6 +164,11 @@ Status after `3394422`:
 
 - Slightly reduced churn for filters with no `map` rules: marker scanning clears app markers once and skips BFS/reconciliation while no map rules exist.
 - Not fixed for active marker rules. The automap chain can still be detached/attached during marker input changes, generation transitions, tamper recovery, or empty marker snapshots.
+
+Status after `f634595`:
+
+- Slightly reduced active-marker churn by lowering marker BFS/reconciliation frequency from 30 ms to 100 ms.
+- Not fixed. The automap splice/reconciliation behavior is unchanged, so native icon blinking can still happen if detach/attach churn or empty snapshots occur.
 
 Symptoms:
 
@@ -306,8 +322,8 @@ Diagnostics to add:
 
 1. Fix departed-item hook bit cleanup so stale hide/show/inspected bits cannot survive until `clear_cache()`.
 2. Fix large-filter matching cost: precompile patterns, add decision cache, and skip marker BFS when no rules need it.
-3. Add diagnostics for hook mask cleanup and filter generation changes.
-4. Investigate off-screen discovery by comparing BFS ids with item-scan ids.
+3. Verify off-screen discovery coverage in live sessions by comparing BFS ids with item-scan ids.
+4. Add diagnostics for hook mask cleanup and filter generation changes.
 5. Stabilize automap marker reconciliation and reduce detach/attach churn.
 6. Add hook mask collision/stale-state diagnostics for long-session reports.
 

@@ -57,16 +57,19 @@ The backend handles all low-level Windows operations:
 
 ### Formatting
 
+Never run `cargo fmt` directly, in any mode. This includes `cargo fmt`,
+`cargo fmt --check`, `cargo fmt --manifest-path ...`, and any equivalent
+command whose purpose is to invoke Rust formatting.
+
 Do not run repository-wide auto-format write commands unless the user explicitly
-asks for formatting in the current turn. This includes `cargo fmt`,
-`pnpm format`, `prettier --write`, and equivalent formatter write modes.
+asks for formatting in the current turn. This includes `pnpm format`,
+`prettier --write`, and equivalent formatter write modes.
 
-Formatter check commands are allowed when verifying work, for example
-`cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check` and
-`pnpm format:check`.
+Formatter check commands are allowed when verifying work only if they do not
+invoke `cargo fmt`.
 
-Formatting is enforced by `.husky/pre-commit`, which runs `pnpm format:all`.
-Do not bypass the hook unless the user explicitly asks.
+Rust formatting is enforced by `.husky/pre-commit`, which runs
+`pnpm format:all`. Do not bypass the hook unless the user explicitly asks.
 
 ### Git Commits
 
