@@ -1,8 +1,6 @@
 //! Rule matching against a single scanned item.
 
-use regex::Regex;
-
-use super::{ItemQuality, ItemTier, Rule};
+use super::{CompiledPattern, ItemQuality, ItemTier, Rule};
 use crate::notifier::ItemDropEvent;
 
 pub struct MatchContext<'a> {
@@ -42,21 +40,24 @@ impl<'a> MatchContext<'a> {
             return false;
         }
         if let Some(ref pattern) = rule.name_pattern {
+            let compiled = rule.compiled_name_pattern();
             // OR across runtime name, items.txt base type, and category prefix
             // (e.g. "Great Rune" for Rhal Rune). Rare runtime names are random
             // affix combos, so they're skipped to avoid false positives.
             let is_rare = self.item.quality.eq_ignore_ascii_case("Rare");
-            let name_hit = !is_rare && pattern_matches(pattern, &self.name_lower);
-            let base_hit =
-                !self.base_name_lower.is_empty() && pattern_matches(pattern, &self.base_name_lower);
-            let category_hit =
-                !self.category_lower.is_empty() && pattern_matches(pattern, &self.category_lower);
+            let name_hit = !is_rare && pattern_matches(pattern, compiled, &self.name_lower);
+            let base_hit = !self.base_name_lower.is_empty()
+                && pattern_matches(pattern, compiled, &self.base_name_lower);
+            let category_hit = !self.category_lower.is_empty()
+                && pattern_matches(pattern, compiled, &self.category_lower);
             if !(name_hit || base_hit || category_hit) {
                 return false;
             }
         }
-        for pattern in &rule.stat_patterns {
-            if !pattern_matches(pattern, &self.stats_lower) {
+        let compiled_stat_patterns = rule.compiled_stat_patterns();
+        for (index, pattern) in rule.stat_patterns.iter().enumerate() {
+            let compiled = compiled_stat_patterns.and_then(|patterns| patterns.get(index));
+            if !pattern_matches(pattern, compiled, &self.stats_lower) {
                 return false;
             }
         }
@@ -66,6 +67,18 @@ impl<'a> MatchContext<'a> {
     /// Empty for patterns that only match across line boundaries (e.g.
     /// `(?s)a.*b`), even if the rule matched the blob as a whole.
     pub fn matching_stat_lines(&self, patterns: &[String]) -> Vec<usize> {
+        self.matching_stat_lines_with(patterns, None)
+    }
+
+    pub fn matching_stat_lines_for_rule(&self, rule: &Rule) -> Vec<usize> {
+        self.matching_stat_lines_with(&rule.stat_patterns, rule.compiled_stat_patterns())
+    }
+
+    fn matching_stat_lines_with(
+        &self,
+        patterns: &[String],
+        compiled_patterns: Option<&[CompiledPattern]>,
+    ) -> Vec<usize> {
         if patterns.is_empty() {
             return Vec::new();
         }
@@ -73,7 +86,12 @@ impl<'a> MatchContext<'a> {
             .stats_lower
             .split('\n')
             .enumerate()
-            .filter(|(_, line)| patterns.iter().any(|p| pattern_matches(p, line)))
+            .filter(|(_, line)| {
+                patterns.iter().enumerate().any(|(index, pattern)| {
+                    let compiled = compiled_patterns.and_then(|patterns| patterns.get(index));
+                    pattern_matches(pattern, compiled, line)
+                })
+            })
             .map(|(i, _)| i)
             .collect();
         hits.sort_unstable();
@@ -108,10 +126,14 @@ impl<'a> MatchContext<'a> {
     }
 }
 
-fn pattern_matches(pattern: &str, haystack_lower: &str) -> bool {
-    match Regex::new(&format!("(?i){}", pattern)) {
-        Ok(re) => re.is_match(haystack_lower),
-        Err(_) => haystack_lower.contains(&pattern.to_lowercase()),
+fn pattern_matches(
+    pattern: &str,
+    compiled: Option<&CompiledPattern>,
+    haystack_lower: &str,
+) -> bool {
+    match compiled {
+        Some(compiled) => compiled.is_match(haystack_lower),
+        None => CompiledPattern::new(pattern).is_match(haystack_lower),
     }
 }
 

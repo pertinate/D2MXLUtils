@@ -31,7 +31,7 @@ use crate::process::D2Context;
 use crate::rules::{FilterConfig, MatchContext, Visibility};
 use crate::rules::{ItemTier, Notification};
 #[cfg(target_os = "windows")]
-use crate::scanner_state::SharedScannerState;
+use crate::scanner_state::{CachedFilterDecision, SharedScannerState};
 
 /// MonStats.txt class IDs that count as "goblins" for the alert sound.
 /// Ported verbatim from `D2Stats.au3:$g_goblinIds`.
@@ -271,7 +271,13 @@ impl DropScanner {
     }
 
     pub fn set_filter_config(&mut self, config: Arc<RwLock<FilterConfig>>) {
-        *self.state.filter_config.write().unwrap() = Some(config);
+        if let Ok(mut guard) = config.write() {
+            guard.prepare_for_matching();
+        }
+        let mut guard = self.state.filter_config.write().unwrap();
+        self.state.filter_generation.fetch_add(1, Ordering::SeqCst);
+        self.state.recent_filter_decisions.write().unwrap().clear();
+        *guard = Some(config);
     }
 
     pub fn on_filter_config_changed(&mut self) {
@@ -367,6 +373,7 @@ impl DropScanner {
         self.seen_goblins.clear();
         self.pending_visibility_ops.clear();
         self.state.recent_events.write().unwrap().clear();
+        self.state.recent_filter_decisions.write().unwrap().clear();
         let mut hook_masks_cleared = !self.loot_hook.is_injected();
         if self.loot_hook.is_injected() {
             hook_masks_cleared = true;
@@ -664,12 +671,25 @@ impl DropScanner {
                     let mut event = event;
                     let mut should_emit = true;
                     let mut hook_bits_may_exist = false;
+                    let mut cached_filter_decision = None;
                     if self.state.filter_enabled.load(Ordering::Relaxed) {
-                        let filter_arc = self.state.filter_config.read().unwrap().clone();
-                        if let Some(ref filter_arc) = filter_arc {
+                        let filter_snapshot = {
+                            let guard = self.state.filter_config.read().unwrap();
+                            guard.as_ref().map(|filter_arc| {
+                                (
+                                    filter_arc.clone(),
+                                    self.state.filter_generation.load(Ordering::SeqCst),
+                                )
+                            })
+                        };
+                        if let Some((filter_arc, filter_generation)) = filter_snapshot {
                             if let Ok(filter) = filter_arc.read() {
                                 let ctx = MatchContext::new(&event);
                                 let decision = filter.decide(&ctx);
+                                cached_filter_decision = Some(CachedFilterDecision::from_decision(
+                                    filter_generation,
+                                    &decision,
+                                ));
 
                                 if self.verbose_filter_logging {
                                     let winner = filter.rules.iter().rev().find(|r| ctx.matches(r));
@@ -732,6 +752,19 @@ impl DropScanner {
                         .write()
                         .unwrap()
                         .insert(event.unit_id, event.clone());
+                    if let Some(decision) = cached_filter_decision {
+                        self.state
+                            .recent_filter_decisions
+                            .write()
+                            .unwrap()
+                            .insert(event.unit_id, decision);
+                    } else {
+                        self.state
+                            .recent_filter_decisions
+                            .write()
+                            .unwrap()
+                            .remove(&event.unit_id);
+                    }
 
                     if should_emit {
                         // Push to session history (only filter-matched items
@@ -824,6 +857,11 @@ impl DropScanner {
             .retain_current(&current_item_ids);
         self.state
             .recent_events
+            .write()
+            .unwrap()
+            .retain(|id, _| current_item_ids.contains(id));
+        self.state
+            .recent_filter_decisions
             .write()
             .unwrap()
             .retain(|id, _| current_item_ids.contains(id));

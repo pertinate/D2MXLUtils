@@ -24,6 +24,8 @@ pub use matching::MatchContext;
 
 use serde::{Deserialize, Serialize};
 
+use regex::Regex;
+
 // =====================================================================
 // Enums
 // =====================================================================
@@ -173,6 +175,39 @@ pub enum Visibility {
 // Rule
 // =====================================================================
 
+#[derive(Debug, Clone)]
+struct CompiledPattern {
+    source: String,
+    regex: Option<Regex>,
+    fallback_lower: String,
+}
+
+impl CompiledPattern {
+    fn new(pattern: &str) -> Self {
+        Self {
+            source: pattern.to_string(),
+            regex: Regex::new(&format!("(?i){}", pattern)).ok(),
+            fallback_lower: pattern.to_lowercase(),
+        }
+    }
+
+    fn source_matches(&self, pattern: &str) -> bool {
+        self.source == pattern
+    }
+
+    fn is_match(&self, haystack_lower: &str) -> bool {
+        match &self.regex {
+            Some(re) => re.is_match(haystack_lower),
+            None => haystack_lower.contains(&self.fallback_lower),
+        }
+    }
+
+    #[cfg(test)]
+    fn is_regex(&self) -> bool {
+        self.regex.is_some()
+    }
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Rule {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -210,6 +245,46 @@ pub struct Rule {
 
     #[serde(default, skip_serializing_if = "is_false")]
     pub map: bool,
+
+    #[serde(skip)]
+    compiled_name_pattern: Option<CompiledPattern>,
+
+    #[serde(skip)]
+    compiled_stat_patterns: Vec<CompiledPattern>,
+}
+
+impl Rule {
+    fn prepare_for_matching(&mut self) {
+        self.compiled_name_pattern = self.name_pattern.as_deref().map(CompiledPattern::new);
+        self.compiled_stat_patterns = self
+            .stat_patterns
+            .iter()
+            .map(|pattern| CompiledPattern::new(pattern))
+            .collect();
+    }
+
+    fn compiled_name_pattern(&self) -> Option<&CompiledPattern> {
+        let pattern = self.name_pattern.as_deref()?;
+        self.compiled_name_pattern
+            .as_ref()
+            .filter(|compiled| compiled.source_matches(pattern))
+    }
+
+    fn compiled_stat_patterns(&self) -> Option<&[CompiledPattern]> {
+        if self.compiled_stat_patterns.len() != self.stat_patterns.len() {
+            return None;
+        }
+        if self
+            .compiled_stat_patterns
+            .iter()
+            .zip(&self.stat_patterns)
+            .all(|(compiled, pattern)| compiled.source_matches(pattern))
+        {
+            Some(&self.compiled_stat_patterns)
+        } else {
+            None
+        }
+    }
 }
 
 fn is_false(b: &bool) -> bool {
@@ -274,6 +349,17 @@ impl Default for FilterConfig {
 }
 
 impl FilterConfig {
+    /// Prepare regex matchers once when a filter is loaded into a runtime path.
+    pub fn prepare_for_matching(&mut self) {
+        for rule in &mut self.rules {
+            rule.prepare_for_matching();
+        }
+    }
+
+    pub fn has_map_rules(&self) -> bool {
+        self.rules.iter().any(|rule| rule.map)
+    }
+
     /// Decide what to do with an item: last-match wins, per spec.
     pub fn decide(&self, ctx: &MatchContext) -> FilterDecision {
         let winner = self.rules.iter().rev().find(|r| ctx.matches(r));
@@ -293,7 +379,7 @@ impl FilterConfig {
                     let matched_stat_lines = if rule.stat_patterns.is_empty() {
                         Vec::new()
                     } else {
-                        ctx.matching_stat_lines(&rule.stat_patterns)
+                        ctx.matching_stat_lines_for_rule(rule)
                     };
                     // Drop the silence marker (`sound_none` → 0) so consumers
                     // only see real slot indices (>= 1).
@@ -626,5 +712,55 @@ mod tests {
         ring.stats = "+3 to All Skills\n+15% Faster Cast Rate".to_string();
         let ctx = MatchContext::new(&ring);
         assert!(config.decide(&ctx).notification.is_none());
+    }
+
+    #[test]
+    fn prepare_for_matching_compiles_rule_patterns_once() {
+        let mut config = FilterConfig {
+            rules: vec![Rule {
+                name_pattern: Some("Ring$".into()),
+                stat_patterns: vec![r"\+\d+ to All Skills".into(), "Ring[".into()],
+                ..Rule::default()
+            }],
+            ..FilterConfig::default()
+        };
+
+        config.prepare_for_matching();
+
+        let rule = &config.rules[0];
+        assert!(rule.compiled_name_pattern.is_some());
+        assert_eq!(rule.compiled_stat_patterns.len(), 2);
+        assert!(rule.compiled_stat_patterns[0].is_regex());
+        assert!(!rule.compiled_stat_patterns[1].is_regex());
+    }
+
+    #[test]
+    fn parse_dsl_does_not_prepare_runtime_matchers() {
+        let config = crate::rules::parse_dsl(r#""Ring$" unique {\+\d+ to All Skills} notify"#)
+            .expect("valid DSL");
+
+        let rule = &config.rules[0];
+        assert!(rule.compiled_name_pattern.is_none());
+        assert!(rule.compiled_stat_patterns.is_empty());
+    }
+
+    #[test]
+    fn has_map_rules_detects_any_map_rule() {
+        let mut config = FilterConfig::default();
+        assert!(!config.has_map_rules());
+
+        config.rules.push(Rule {
+            qualities: vec![ItemQuality::Unique],
+            notify: true,
+            ..Rule::default()
+        });
+        assert!(!config.has_map_rules());
+
+        config.rules.push(Rule {
+            name_pattern: Some("Ring".into()),
+            map: true,
+            ..Rule::default()
+        });
+        assert!(config.has_map_rules());
     }
 }

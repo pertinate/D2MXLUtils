@@ -1,6 +1,6 @@
-//! BFS over the room graph, filter-decide per item, reconcile the
-//! automap-marker chain. Owns `MapMarkerManager` exclusively. Reads
-//! `recent_events` via snapshot to keep the items thread unblocked.
+//! BFS over the room graph and reconcile the automap-marker chain. Owns
+//! `MapMarkerManager` exclusively. Reads cached filter decisions via snapshot
+//! to keep the items thread unblocked and avoid duplicate rule matching.
 
 #![cfg(target_os = "windows")]
 
@@ -10,14 +10,38 @@ use std::sync::Arc;
 
 use crate::logger::error as log_error;
 use crate::map_marker::{self, MapMarkerManager, MarkerItem};
-use crate::notifier::ItemDropEvent;
 use crate::offsets::{d2client, unit};
-use crate::rules::{MatchContext, Visibility};
-use crate::scanner_state::SharedScannerState;
+use crate::rules::Visibility;
+use crate::scanner_state::{CachedFilterDecision, SharedScannerState};
 
 pub struct MarkerScanner {
     state: Arc<SharedScannerState>,
     map_marker: MapMarkerManager,
+    markers_cleared: bool,
+}
+
+fn cached_decision_places_marker(
+    decision: Option<&CachedFilterDecision>,
+    current_generation: u64,
+) -> bool {
+    decision.is_some_and(|decision| {
+        decision.generation == current_generation
+            && decision.place_on_map
+            && decision.visibility != Visibility::Hide
+    })
+}
+
+fn take_marker_clear_needed(markers_cleared: &mut bool) -> bool {
+    if *markers_cleared {
+        false
+    } else {
+        *markers_cleared = true;
+        true
+    }
+}
+
+fn mark_marker_path_active(markers_cleared: &mut bool) {
+    *markers_cleared = false;
 }
 
 impl MarkerScanner {
@@ -25,6 +49,7 @@ impl MarkerScanner {
         Self {
             state,
             map_marker: MapMarkerManager::new(),
+            markers_cleared: true,
         }
     }
 
@@ -42,24 +67,39 @@ impl MarkerScanner {
         }
 
         if !self.state.filter_enabled.load(Ordering::Relaxed) {
-            if let Err(e) = self.map_marker.clear(&self.state.ctx) {
-                log_error(&format!("map_marker clear (disabled) failed: {}", e));
+            if take_marker_clear_needed(&mut self.markers_cleared) {
+                if let Err(e) = self.map_marker.clear(&self.state.ctx) {
+                    log_error(&format!("map_marker clear (disabled) failed: {}", e));
+                }
             }
             return;
         }
 
-        let filter_arc = match self.state.filter_config.read() {
-            Ok(g) => g.clone(),
+        let filter_snapshot = match self.state.filter_config.read() {
+            Ok(g) => g.as_ref().map(|filter_arc| {
+                (
+                    filter_arc.clone(),
+                    self.state.filter_generation.load(Ordering::SeqCst),
+                )
+            }),
             Err(_) => return,
         };
-        let Some(filter_arc) = filter_arc else { return };
-        // Inner read held across the full BFS. Safe because `set_filter_config`
-        // swaps the outer Arc instead of writing through this lock — don't add
-        // a `filter_arc.write()` without revisiting.
-        let filter = match filter_arc.read() {
-            Ok(f) => f,
+        let Some((filter_arc, current_generation)) = filter_snapshot else {
+            return;
+        };
+        let has_map_rules = match filter_arc.read() {
+            Ok(f) => f.has_map_rules(),
             Err(_) => return,
         };
+        if !has_map_rules {
+            if take_marker_clear_needed(&mut self.markers_cleared) {
+                if let Err(e) = self.map_marker.clear(&self.state.ctx) {
+                    log_error(&format!("map_marker clear (no map rules) failed: {}", e));
+                }
+            }
+            return;
+        }
+        mark_marker_path_active(&mut self.markers_cleared);
 
         // Depth 10 reaches past what the engine typically keeps loaded; BFS
         // stops early when `ppRoomsNear` runs out.
@@ -86,23 +126,19 @@ impl MarkerScanner {
         }
 
         // Snapshot, then release the read lock — items thread mustn't block
-        // on inserts during per-item decide() below.
-        let snapshot: HashMap<u32, ItemDropEvent> = match self.state.recent_events.read() {
-            Ok(g) => g.clone(),
-            Err(_) => return,
-        };
+        // on inserts while marker reconciliation runs.
+        let snapshot: HashMap<u32, CachedFilterDecision> =
+            match self.state.recent_filter_decisions.read() {
+                Ok(g) => g.clone(),
+                Err(_) => return,
+            };
 
         let mut newly_matched: Vec<MarkerItem> = Vec::new();
         for (p_unit, sub_x, sub_y) in positions {
             let Some(&unit_id) = unit_ids.get(&p_unit) else {
                 continue;
             };
-            let Some(event) = snapshot.get(&unit_id) else {
-                continue;
-            };
-            let ctx = MatchContext::new(event);
-            let decision = filter.decide(&ctx);
-            if !decision.place_on_map || decision.visibility == Visibility::Hide {
+            if !cached_decision_places_marker(snapshot.get(&unit_id), current_generation) {
                 continue;
             }
             let (cx, cy) = map_marker::sub_to_cell(sub_x, sub_y);
@@ -137,6 +173,7 @@ impl MarkerScanner {
         if let Err(e) = self.map_marker.clear(&self.state.ctx) {
             log_error(&format!("map_marker clear (game-entry) failed: {}", e));
         }
+        self.markers_cleared = true;
     }
 
     /// Drop all markers; called when D2 closes or the scanner stops.
@@ -144,5 +181,55 @@ impl MarkerScanner {
         if let Err(e) = self.map_marker.clear(&self.state.ctx) {
             log_error(&format!("map_marker clear on shutdown failed: {}", e));
         }
+        self.markers_cleared = true;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::rules::Visibility;
+    use crate::scanner_state::CachedFilterDecision;
+
+    #[test]
+    fn cached_marker_decision_requires_current_visible_map_decision() {
+        let current = CachedFilterDecision {
+            generation: 7,
+            visibility: Visibility::Show,
+            place_on_map: true,
+        };
+        let stale = CachedFilterDecision {
+            generation: 6,
+            visibility: Visibility::Show,
+            place_on_map: true,
+        };
+        let hidden = CachedFilterDecision {
+            generation: 7,
+            visibility: Visibility::Hide,
+            place_on_map: true,
+        };
+        let no_map = CachedFilterDecision {
+            generation: 7,
+            visibility: Visibility::Show,
+            place_on_map: false,
+        };
+
+        assert!(cached_decision_places_marker(Some(&current), 7));
+        assert!(!cached_decision_places_marker(Some(&stale), 7));
+        assert!(!cached_decision_places_marker(Some(&hidden), 7));
+        assert!(!cached_decision_places_marker(Some(&no_map), 7));
+        assert!(!cached_decision_places_marker(None, 7));
+    }
+
+    #[test]
+    fn marker_clear_gate_clears_once_until_marker_path_is_active_again() {
+        let mut markers_cleared = false;
+
+        assert!(take_marker_clear_needed(&mut markers_cleared));
+        assert!(!take_marker_clear_needed(&mut markers_cleared));
+
+        mark_marker_path_active(&mut markers_cleared);
+
+        assert!(take_marker_clear_needed(&mut markers_cleared));
     }
 }

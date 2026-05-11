@@ -5,7 +5,7 @@
 #![cfg(target_os = "windows")]
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicI64};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64};
 use std::sync::{Arc, Mutex, RwLock};
 
 use crate::dps_hook::DpsHook;
@@ -14,16 +14,36 @@ use crate::injection::D2Injector;
 use crate::notifier::ItemDropEvent;
 use crate::offsets::d2client;
 use crate::process::D2Context;
-use crate::rules::FilterConfig;
+use crate::rules::{FilterConfig, FilterDecision, Visibility};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CachedFilterDecision {
+    pub generation: u64,
+    pub visibility: Visibility,
+    pub place_on_map: bool,
+}
+
+impl CachedFilterDecision {
+    pub fn from_decision(generation: u64, decision: &FilterDecision) -> Self {
+        Self {
+            generation,
+            visibility: decision.visibility,
+            place_on_map: decision.place_on_map,
+        }
+    }
+}
 
 pub struct SharedScannerState {
     pub ctx: Arc<D2Context>,
     pub injector: Arc<Mutex<D2Injector>>,
     pub filter_config: RwLock<Option<Arc<RwLock<FilterConfig>>>>,
+    pub filter_generation: AtomicU64,
     pub filter_enabled: AtomicBool,
-    /// Enriched events keyed by `dwUnitId`; marker thread snapshots for
-    /// regex matching.
+    /// Enriched events keyed by `dwUnitId`; pruned to currently visible items.
     pub recent_events: RwLock<HashMap<u32, ItemDropEvent>>,
+    /// Runtime-only filter decisions keyed by `dwUnitId`; marker thread uses
+    /// these instead of re-running the full filter.
+    pub recent_filter_decisions: RwLock<HashMap<u32, CachedFilterDecision>>,
     /// Items thread sets on game-entry; marker thread swap-clears at top
     /// of tick.
     pub clear_markers: AtomicBool,
@@ -42,8 +62,10 @@ impl SharedScannerState {
             ctx: Arc::new(ctx),
             injector: Arc::new(Mutex::new(injector)),
             filter_config: RwLock::new(None),
+            filter_generation: AtomicU64::new(0),
             filter_enabled: AtomicBool::new(false),
             recent_events: RwLock::new(HashMap::new()),
+            recent_filter_decisions: RwLock::new(HashMap::new()),
             clear_markers: AtomicBool::new(false),
             stop: AtomicBool::new(false),
             dps_hook: Arc::new(DpsHook::new()),

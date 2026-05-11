@@ -956,10 +956,11 @@ fn explain_filter_line(line: String) -> Option<String> {
 /// scenarios built around this command.
 #[tauri::command]
 fn get_item_filter_action(
-    config: rules::FilterConfig,
+    mut config: rules::FilterConfig,
     item: notifier::ItemDropEvent,
 ) -> rules::FilterDecision {
     use crate::rules::MatchContext;
+    config.prepare_for_matching();
     let ctx = MatchContext::new(&item);
     config.decide(&ctx)
 }

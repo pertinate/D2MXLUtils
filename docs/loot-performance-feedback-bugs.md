@@ -93,6 +93,11 @@ Diagnostics to add:
 
 ### P0: Loot Stops Updating Until Filter Cache Is Cleared
 
+Status after `ff4e2b5`:
+
+- Partially/directly addressed for the stale hook-mask path. The commit makes hook-mask cleanup independent from `seen_items`, retries failed hook-bit cleanup, preserves cleanup state across partial mask-clear failures, and clears stale opposing show/hide bits for current decisions.
+- Not fully closed as a whole bug class. Other possible causes listed below, especially stale `seen_items` notification/decision state and stale `recent_events`, still need separate investigation.
+
 Symptoms:
 
 - Loot display/notifications can stop working during a session.
@@ -186,6 +191,11 @@ Diagnostics to add:
 
 ### P0: Departed Item Hook Bits May Never Be Cleared
 
+Status after `ff4e2b5`:
+
+- Likely fixed directly. Departed ids now remain in a dedicated hook-bit cleanup lifecycle until `clear_unit_id_bits()` succeeds, instead of depending on `seen_items` long enough to reach the missed-tick threshold.
+- The fix also handles lower-16 mask-index collisions more conservatively: departed ids are not batch-cleared while a live item shares the same mask index, and fresh colliding items reset stale bits before being marked inspected.
+
 Symptoms:
 
 - After 30+ minutes, loot labels randomly stop showing.
@@ -236,6 +246,11 @@ Implementation status:
 `inspected` is not a notification cache. It is the trampoline's safety gate: uninspected items are hidden until Rust has applied a decision, preventing a fresh hidden drop from flashing through MXL's original label logic before the scanner catches up.
 
 ### P1: Long Sessions Can Accumulate Wrong Hook Mask State
+
+Status after `ff4e2b5`:
+
+- Partially/directly addressed for the concrete stale departed-bit path described in the P0 hook-bit bug above.
+- Not fully closed. The broader limitation remains: hook masks are still indexed by `unit_id & 0xFFFF`, so two simultaneously live items with the same lower-16 mask index cannot be represented independently by the current mask design.
 
 Symptoms:
 
