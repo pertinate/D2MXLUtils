@@ -240,8 +240,8 @@
       <div class="help-content">
         <p>Rule format (all parts optional — rules are matched last-wins):</p>
         <code
-          >["name"] [quality] [tier] [eth] &#123;stat&#125; [color] [show|hide] [sound] [notify]
-          [stat] [map]</code
+          >["name"] [quality] [tier] [sockets] [eth] &#123;stat&#125; [color] [show|hide] [sound]
+          [notify] [stat] [map]</code
         >
 
         <div class="help-columns">
@@ -277,6 +277,17 @@
                 <span class="kw-tier">2</span>,
                 <span class="kw-tier">3</span>,
                 <span class="kw-tier">4</span>
+              </li>
+            </ul>
+          </div>
+
+          <div class="help-column">
+            <h4>Sockets</h4>
+            <ul>
+              <li><span class="kw-socket">sockets0</span> (no sockets)</li>
+              <li>
+                <span class="kw-socket">sockets1</span> -
+                <span class="kw-socket">sockets6</span>
               </li>
             </ul>
           </div>
@@ -572,6 +583,10 @@
     font-weight: 600;
     font-style: italic;
   }
+  .kw-socket {
+    color: #6aa9ff;
+    font-weight: 600;
+  }
   .kw-action {
     color: #e53935;
     font-weight: 600;
@@ -597,6 +612,9 @@
   }
   :global([data-theme='light']) .kw-ethereal {
     color: #00838f;
+  }
+  :global([data-theme='light']) .kw-socket {
+    color: #1565c0;
   }
   :global([data-theme='light']) .kw-action {
     color: #d32f2f;

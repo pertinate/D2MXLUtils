@@ -4,6 +4,7 @@
   import {
     EditorView,
     keymap,
+    lineNumbers,
     highlightActiveLine,
     highlightActiveLineGutter,
     drawSelection,
@@ -77,6 +78,7 @@
       EditorState.allowMultipleSelections.of(true),
       rectangularSelection(),
       crosshairCursor(),
+      lineNumbers(),
       highlightActiveLine(),
       highlightActiveLineGutter(),
 

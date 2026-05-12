@@ -73,8 +73,8 @@ export const darkTheme = EditorView.theme(
       borderRight: '1px solid var(--border-primary, #2a2a35)',
     },
     '.cm-lineNumbers .cm-gutterElement': {
-      padding: '0 12px 0 16px',
-      minWidth: '3em',
+      padding: '0 8px',
+      minWidth: '2.25em',
     },
     '.cm-foldGutter': {
       width: '16px',
@@ -138,8 +138,8 @@ export const lightTheme = EditorView.theme(
       borderRight: '1px solid var(--border-primary, #e0e0e0)',
     },
     '.cm-lineNumbers .cm-gutterElement': {
-      padding: '0 12px 0 16px',
-      minWidth: '3em',
+      padding: '0 8px',
+      minWidth: '2.25em',
     },
     '&.cm-focused .cm-cursor': {
       borderLeftColor: 'var(--accent-primary, #9a7b4f)',
