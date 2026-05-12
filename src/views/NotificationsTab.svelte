@@ -59,7 +59,7 @@
   }
 
   function setFontSize(value: number) {
-    const clamped = Math.max(10, Math.min(24, value));
+    const clamped = Math.max(10, Math.min(36, value));
     settingsStore.set('notificationFontSize', clamped);
   }
 
@@ -104,14 +104,14 @@
       <div class="setting-row">
         <div class="setting-info">
           <label class="setting-label" for="font-size">Size</label>
-          <span class="setting-hint">Scales the whole notification (10-24 px)</span>
+          <span class="setting-hint">Scales the whole notification (10-36 px)</span>
         </div>
         <div class="setting-control">
           <input
             type="range"
             id="font-size-slider"
             min="10"
-            max="24"
+            max="36"
             step="1"
             value={fontSize}
             oninput={(e) => setFontSize(parseInt(e.currentTarget.value))}
@@ -173,9 +173,10 @@
   .tab-content {
     padding: var(--space-4);
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(260px, 340px);
+    grid-template-columns: minmax(0, 1fr) minmax(340px, 520px);
     gap: var(--space-5);
     align-items: start;
+    scrollbar-gutter: stable;
   }
 
   @media (max-width: 820px) {
