@@ -26,6 +26,16 @@ sort_commits = "newest"
 protect_breaking_commits = true
 
 commit_parsers = [
+  # Noise — skip before broad groups like ^docs can match.
+  { message = "^docs: update CHANGELOG", skip = true },
+  { message = "^[Mm]erge ", skip = true },
+  { message = "^[Aa]pply cargo fmt", skip = true },
+  { message = "^[Ss]top tracking", skip = true },
+  { message = "^[Uu]pdate \\.gitignore", skip = true },
+  { message = "^[Uu]pdate settings\\.local\\.json", skip = true },
+  { message = "^lock$", skip = true },
+  { message = "^wip", skip = true },
+
   # Conventional Commits
   { message = "^feat", group = "Features" },
   { message = "^fix", group = "Bug Fixes" },
@@ -37,16 +47,6 @@ commit_parsers = [
   { message = "^build", group = "Build" },
   { message = "^ci", group = "CI" },
   { message = "^chore", group = "Miscellaneous" },
-
-  # Noise — skip
-  { message = "^docs: update CHANGELOG", skip = true },
-  { message = "^[Mm]erge ", skip = true },
-  { message = "^[Aa]pply cargo fmt", skip = true },
-  { message = "^[Ss]top tracking", skip = true },
-  { message = "^[Uu]pdate \\.gitignore", skip = true },
-  { message = "^[Uu]pdate settings\\.local\\.json", skip = true },
-  { message = "^lock$", skip = true },
-  { message = "^wip", skip = true },
 
   # Keyword fallbacks for unprefixed commits
   { message = "^([Aa]dd|[Ii]ntroduce|[Ii]mplement|[Ss]upport)", group = "Features" },
