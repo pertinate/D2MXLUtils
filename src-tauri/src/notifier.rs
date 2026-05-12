@@ -136,6 +136,21 @@ pub struct DropScanner {
 const MISSED_TICKS_BEFORE_BIT_CLEAR: u8 = 2;
 #[cfg(target_os = "windows")]
 const HOOK_CLEANUP_FAILURE_LOG_SUPPRESSED_TICKS: u32 = 166;
+#[cfg(target_os = "windows")]
+const MAX_ITEM_SCAN_PATHS: usize = 1024;
+#[cfg(target_os = "windows")]
+const MAX_ITEM_SCAN_UNITS_PER_PATH: usize = 4096;
+
+#[cfg(target_os = "windows")]
+fn capped_item_scan_path_count(i_paths: usize) -> (usize, bool) {
+    let capped = i_paths.min(MAX_ITEM_SCAN_PATHS);
+    (capped, i_paths > capped)
+}
+
+#[cfg(target_os = "windows")]
+fn item_scan_unit_index_in_bounds(index: usize) -> bool {
+    index < MAX_ITEM_SCAN_UNITS_PER_PATH
+}
 
 #[cfg(target_os = "windows")]
 fn should_enrich_bfs_candidate(
@@ -718,11 +733,18 @@ impl DropScanner {
             Ok(p) => p as usize,
             _ => return events,
         };
+        let (path_count, path_count_capped) = capped_item_scan_path_count(i_paths);
+        if path_count_capped {
+            log_error(&format!(
+                "item scan path count cap hit; scanning first {} paths",
+                MAX_ITEM_SCAN_PATHS
+            ));
+        }
 
         let mut current_item_ids: HashSet<u32> = HashSet::new();
 
         // Two passes keep cleanup aware of current ids without storing pUnit snapshots.
-        for i in 0..i_paths {
+        for i in 0..path_count {
             let p_path = match self.state.ctx.process.read_memory::<u32>(p_paths + 4 * i) {
                 Ok(p) if p != 0 => p as usize,
                 _ => continue,
@@ -738,7 +760,14 @@ impl DropScanner {
                 _ => continue,
             };
 
+            let mut units_visited = 0;
+            let mut unit_cap_hit = false;
             while p_unit != 0 {
+                if !item_scan_unit_index_in_bounds(units_visited) {
+                    unit_cap_hit = true;
+                    break;
+                }
+                units_visited += 1;
                 let unit: UnitAny = match self.state.ctx.process.read_memory(p_unit as usize) {
                     Ok(u) => u,
                     Err(_) => break,
@@ -758,9 +787,15 @@ impl DropScanner {
 
                 p_unit = unit.p_next_unit;
             }
+            if unit_cap_hit {
+                log_error(&format!(
+                    "item scan unit cap hit during current-id pass; max={} units per path",
+                    MAX_ITEM_SCAN_UNITS_PER_PATH
+                ));
+            }
         }
 
-        for i in 0..i_paths {
+        for i in 0..path_count {
             let p_path = match self.state.ctx.process.read_memory::<u32>(p_paths + 4 * i) {
                 Ok(p) if p != 0 => p as usize,
                 _ => continue,
@@ -776,7 +811,14 @@ impl DropScanner {
                 _ => continue,
             };
 
+            let mut units_visited = 0;
+            let mut unit_cap_hit = false;
             while p_unit != 0 {
+                if !item_scan_unit_index_in_bounds(units_visited) {
+                    unit_cap_hit = true;
+                    break;
+                }
+                units_visited += 1;
                 let unit: UnitAny = match self.state.ctx.process.read_memory(p_unit as usize) {
                     Ok(u) => u,
                     Err(_) => break,
@@ -803,6 +845,12 @@ impl DropScanner {
                     self.process_scanned_item(scanned, &mut events);
                 }
                 p_unit = next_unit;
+            }
+            if unit_cap_hit {
+                log_error(&format!(
+                    "item scan unit cap hit during scan pass; max={} units per path",
+                    MAX_ITEM_SCAN_UNITS_PER_PATH
+                ));
             }
         }
 
@@ -1593,6 +1641,27 @@ mod tests {
             &current_item_ids,
             &decisions,
             7
+        ));
+    }
+
+    #[test]
+    fn item_scan_path_count_is_capped() {
+        assert_eq!(capped_item_scan_path_count(0), (0, false));
+        assert_eq!(capped_item_scan_path_count(12), (12, false));
+        assert_eq!(
+            capped_item_scan_path_count(MAX_ITEM_SCAN_PATHS + 1),
+            (MAX_ITEM_SCAN_PATHS, true)
+        );
+    }
+
+    #[test]
+    fn item_scan_unit_walk_stops_at_marker_bfs_cap() {
+        assert!(item_scan_unit_index_in_bounds(0));
+        assert!(item_scan_unit_index_in_bounds(
+            MAX_ITEM_SCAN_UNITS_PER_PATH - 1
+        ));
+        assert!(!item_scan_unit_index_in_bounds(
+            MAX_ITEM_SCAN_UNITS_PER_PATH
         ));
     }
 }
