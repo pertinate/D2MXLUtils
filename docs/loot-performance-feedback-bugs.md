@@ -170,6 +170,12 @@ Status after `f634595`:
 - Slightly reduced active-marker churn by lowering marker BFS/reconciliation frequency from 30 ms to 100 ms.
 - Not fixed. The automap splice/reconciliation behavior is unchanged, so native icon blinking can still happen if detach/attach churn or empty snapshots occur.
 
+Status after `20c6c96`:
+
+- Partially fixed for filter-generation gaps and temporary empty marker snapshots. Marker scanning now distinguishes current-generation `Place` / `DoNotPlace` decisions from missing or stale `Unknown` decisions, and marker reconciliation only evicts cached markers for explicit current-generation no-marker decisions.
+- This avoids detach/rebuild churn when an item is BFS-visible but the item scanner has not yet repopulated `recent_filter_decisions` after a filter save.
+- Not fully proven as a complete native-icon fix. The app still mutates the live automap object tree, and detach/attach can still happen on real marker set changes, layer switches, tamper recovery, no-map-rule clears, or TTL/pickup eviction.
+
 Symptoms:
 
 - Minimap icons for altars, quest markers, chests, entrances, and waypoints blink or disappear.
@@ -179,18 +185,19 @@ Evidence in code:
 
 - `src-tauri/src/map_marker.rs:156-164` detaches and attaches the marker chain during reconciliation.
 - `src-tauri/src/map_marker.rs:197-235` prepends allocated marker cells into `AutomapLayer.pObjects`.
-- `src-tauri/src/map_marker.rs:254-255` drops persistent markers immediately when BFS sees the item but current filter matching does not produce a marker.
+- `src-tauri/src/marker_scanner.rs` classifies cached marker decisions as place, explicit no-marker, or unknown.
+- `src-tauri/src/map_marker.rs` drops persistent markers only for explicit no-marker decisions, not for missing or stale filter decisions.
 
-Root-cause hypothesis:
+Root-cause hypothesis before `20c6c96`:
 
 - The app mutates the live automap object tree while the game/MXL may also update native icons. Filter changes can create rapid detach/attach churn and temporary empty snapshots, causing marker chains and native icons to blink or disappear.
 
-Proposed fixes:
+Fix status:
 
-- Avoid rebuilding the automap chain when marker input is temporarily empty due to filter generation changes.
-- Freeze marker reconciliation for 1-2 item ticks after filter config changes.
-- Reduce automap tree churn by hashing inputs and only writing when stable.
-- Add stronger tamper and stale-root diagnostics before changing the splice logic.
+- Done in `20c6c96`: avoid rebuilding the automap chain when marker input is temporarily empty due to stale or missing filter decisions during generation changes.
+- Already present before this fix: marker hashing skips writes when the rendered marker set is stable.
+- Consider freezing marker reconciliation for 1-2 item ticks after filter config changes if generation-gap churn is still observable in live sessions.
+- Add stronger tamper and stale-root diagnostics before deeper splice-logic changes.
 
 Diagnostics to add:
 
@@ -291,6 +298,12 @@ Diagnostics to add:
 
 ### P2: Item Scanner Has Fewer Safety Caps Than Marker BFS
 
+Status after `d767201`:
+
+- Likely fixed directly. `tick_items()` now caps both the `i_paths` walk and per-path unit-list walks, mirroring the marker BFS safety limits.
+- Cap hits are logged, and bad unit reads no longer get mislabeled as unit-cap hits.
+- Remaining limitation: these are defensive safety caps, not aggregated diagnostics; the broader tick-duration/read-failure counters listed below are still not implemented.
+
 Symptoms:
 
 - Rare stalls or missed items on corrupted/transient room/unit lists could amplify lag.
@@ -307,8 +320,8 @@ Root-cause hypothesis:
 
 Proposed fixes:
 
-- Add caps for `i_paths` and per-room unit iteration in `tick_items()`.
-- Log when caps are hit.
+- Done in `d767201`: add caps for `i_paths` and per-room unit iteration in `tick_items()`.
+- Done in `d767201`: log when caps are hit.
 - Prefer continuing past bad unit reads where safe instead of breaking the entire room scan.
 
 Diagnostics to add:
