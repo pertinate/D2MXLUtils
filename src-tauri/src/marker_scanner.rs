@@ -20,15 +20,28 @@ pub struct MarkerScanner {
     markers_cleared: bool,
 }
 
-fn cached_decision_places_marker(
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CachedMarkerDecision {
+    Place,
+    DoNotPlace,
+    Unknown,
+}
+
+fn cached_marker_decision(
     decision: Option<&CachedFilterDecision>,
     current_generation: u64,
-) -> bool {
-    decision.is_some_and(|decision| {
-        decision.generation == current_generation
-            && decision.place_on_map
-            && decision.visibility != Visibility::Hide
-    })
+) -> CachedMarkerDecision {
+    let Some(decision) = decision else {
+        return CachedMarkerDecision::Unknown;
+    };
+    if decision.generation != current_generation {
+        return CachedMarkerDecision::Unknown;
+    }
+    if decision.place_on_map && decision.visibility != Visibility::Hide {
+        CachedMarkerDecision::Place
+    } else {
+        CachedMarkerDecision::DoNotPlace
+    }
 }
 
 fn take_marker_clear_needed(markers_cleared: &mut bool) -> bool {
@@ -172,21 +185,27 @@ impl MarkerScanner {
             };
 
         let mut newly_matched: Vec<MarkerItem> = Vec::new();
+        let mut explicitly_unmarked: HashSet<u32> = HashSet::new();
         for (p_unit, sub_x, sub_y) in positions {
             let Some(&unit_id) = unit_ids.get(&p_unit) else {
                 continue;
             };
-            if !cached_decision_places_marker(snapshot.get(&unit_id), current_generation) {
-                continue;
+            match cached_marker_decision(snapshot.get(&unit_id), current_generation) {
+                CachedMarkerDecision::Place => {
+                    let (cx, cy) = map_marker::sub_to_cell(sub_x, sub_y);
+                    newly_matched.push(MarkerItem {
+                        unit_id,
+                        cell_x: cx,
+                        cell_y: cy,
+                        sub_x,
+                        sub_y,
+                    });
+                }
+                CachedMarkerDecision::DoNotPlace => {
+                    explicitly_unmarked.insert(unit_id);
+                }
+                CachedMarkerDecision::Unknown => {}
             }
-            let (cx, cy) = map_marker::sub_to_cell(sub_x, sub_y);
-            newly_matched.push(MarkerItem {
-                unit_id,
-                cell_x: cx,
-                cell_y: cy,
-                sub_x,
-                sub_y,
-            });
         }
 
         let player_sub = map_marker::read_player_subtile(&self.state.ctx);
@@ -199,6 +218,7 @@ impl MarkerScanner {
             &self.state.ctx,
             &*injector,
             &newly_matched,
+            &explicitly_unmarked,
             &bfs_unit_ids,
             player_sub,
         ) {
@@ -255,11 +275,26 @@ mod tests {
             place_on_map: false,
         };
 
-        assert!(cached_decision_places_marker(Some(&current), 7));
-        assert!(!cached_decision_places_marker(Some(&stale), 7));
-        assert!(!cached_decision_places_marker(Some(&hidden), 7));
-        assert!(!cached_decision_places_marker(Some(&no_map), 7));
-        assert!(!cached_decision_places_marker(None, 7));
+        assert_eq!(
+            cached_marker_decision(Some(&current), 7),
+            CachedMarkerDecision::Place
+        );
+        assert_eq!(
+            cached_marker_decision(Some(&stale), 7),
+            CachedMarkerDecision::Unknown
+        );
+        assert_eq!(
+            cached_marker_decision(Some(&hidden), 7),
+            CachedMarkerDecision::DoNotPlace
+        );
+        assert_eq!(
+            cached_marker_decision(Some(&no_map), 7),
+            CachedMarkerDecision::DoNotPlace
+        );
+        assert_eq!(
+            cached_marker_decision(None, 7),
+            CachedMarkerDecision::Unknown
+        );
     }
 
     #[test]

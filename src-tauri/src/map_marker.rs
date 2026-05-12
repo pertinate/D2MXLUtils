@@ -93,6 +93,7 @@ impl MapMarkerManager {
         ctx: &D2Context,
         injector: &D2Injector,
         newly_matched: &[MarkerItem],
+        explicitly_unmarked: &HashSet<u32>,
         bfs_unit_ids: &HashSet<u32>,
         player_sub: Option<(i32, i32)>,
     ) -> Result<(), String> {
@@ -137,6 +138,7 @@ impl MapMarkerManager {
             &mut self.persistent,
             &mut self.last_seen,
             newly_matched,
+            explicitly_unmarked,
             bfs_unit_ids,
             player_sub,
             PICKUP_THRESHOLD_SUBTILES,
@@ -243,16 +245,14 @@ fn reconcile_persistent(
     persistent: &mut HashMap<u32, MarkerItem>,
     last_seen: &mut HashMap<u32, Instant>,
     newly_matched: &[MarkerItem],
+    explicitly_unmarked: &HashSet<u32>,
     bfs_unit_ids: &HashSet<u32>,
     player_sub: Option<(i32, i32)>,
     pickup_threshold: i32,
     ttl: Duration,
     now: Instant,
 ) -> Vec<MarkerItem> {
-    let matched_ids: HashSet<u32> = newly_matched.iter().map(|m| m.unit_id).collect();
-
-    // BFS sees it, filter no longer matches → drop now (don't wait for TTL).
-    persistent.retain(|uid, _| !bfs_unit_ids.contains(uid) || matched_ids.contains(uid));
+    persistent.retain(|uid, _| !explicitly_unmarked.contains(uid));
 
     for m in newly_matched {
         persistent.insert(m.unit_id, *m);
@@ -495,6 +495,7 @@ mod tests {
             &mut persistent,
             &mut last_seen,
             &matched,
+            &HashSet::new(),
             &bfs,
             Some((55, 55)),
             32,
@@ -518,6 +519,7 @@ mod tests {
             &mut last_seen,
             &[],
             &HashSet::new(),
+            &HashSet::new(),
             Some((0, 0)),
             32,
             Duration::from_secs(3600),
@@ -539,6 +541,7 @@ mod tests {
             &mut last_seen,
             &[],
             &HashSet::new(),
+            &HashSet::new(),
             Some((50, 50)),
             32,
             Duration::from_secs(3600),
@@ -557,13 +560,13 @@ mod tests {
 
         let mut bfs = HashSet::new();
         bfs.insert(42u32);
+        let explicitly_unmarked = bfs.clone();
 
-        // BFS sees the item, but newly_matched is empty (filter no longer
-        // matches). Expected: item dropped from persistent immediately.
         let out = reconcile_persistent(
             &mut persistent,
             &mut last_seen,
             &[],
+            &explicitly_unmarked,
             &bfs,
             Some((50, 50)),
             32,
@@ -588,6 +591,7 @@ mod tests {
             &mut persistent,
             &mut last_seen,
             &matched,
+            &HashSet::new(),
             &bfs,
             Some((100, 100)),
             32,
@@ -610,6 +614,7 @@ mod tests {
             &mut last_seen,
             &[],
             &HashSet::new(),
+            &HashSet::new(),
             None,
             32,
             Duration::from_secs(3600),
@@ -629,6 +634,7 @@ mod tests {
             &mut persistent,
             &mut last_seen,
             &[],
+            &HashSet::new(),
             &HashSet::new(),
             Some((0, 0)),
             32,
