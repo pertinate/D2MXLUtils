@@ -98,6 +98,10 @@
   const secondary = $derived(showTwoLines ? item.base_name : null);
 
   const hasBadges = $derived(item.is_ethereal || !item.is_identified);
+  const clampedOpacity = $derived(Math.max(0, Math.min(1, opacity)));
+  const textContrastBoost = $derived(1 - clampedOpacity);
+  const textSaturation = $derived(1 + textContrastBoost * 0.65);
+  const textBrightness = $derived(1 + textContrastBoost * 0.28);
 </script>
 
 <div
@@ -105,6 +109,8 @@
   class:exiting
   style:font-size="{fontSize}px"
   style:background-color="rgba(0, 0, 0, {opacity})"
+  style:--notification-text-saturation={textSaturation}
+  style:--notification-text-brightness={textBrightness}
 >
   <div class="item-name" style:color={nameColor}>
     {primary}{#if hasBadges}
@@ -138,6 +144,13 @@
   .item-name {
     font-weight: 600;
     line-height: 1.3;
+  }
+
+  .item-name,
+  .item-base,
+  .stat-line {
+    filter: saturate(var(--notification-text-saturation))
+      brightness(var(--notification-text-brightness));
   }
 
   .item-base {
