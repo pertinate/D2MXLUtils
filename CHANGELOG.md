@@ -1,14 +1,68 @@
 # Changelog
 
+## v1.25.0 — 2026-05-13
+
+### Bug Fixes
+
+- Fix(hotkeys): support auxiliary mouse buttons (ceaab6a)
+- Fix(ci): keep release automation out of notes (adae543)
+- Fix(notifications): support larger preview sizes (924000a)
+- Fix(editor): restore line numbers and socket reference (2588f48)
+- Fix(loot-filter): stabilize automap marker reconciliation (20c6c96)
+- Fix(scanner): cap item memory walks (d767201)
+
+### Features
+
+- Feat(settings): add auto /nopickup toggle (ec02674)
+- Feat(notifications): boost text contrast at low opacity (153b229)
+- Feat(notifications): show matched stat lines (dce1845)
+
+### Other
+
+- 1.25.0 (ea3aa46)
+
+## v1.24.0 — 2026-05-11
+
+### Bug Fixes
+
+- Fix(loot-filter): process BFS-only item candidates (f634595)
+- Fix(dps-meter): show meter only in active games (83151b8)
+- Fix(loot-filter): harden hook mask cleanup lifecycle (ff4e2b5)
+- Fix(dps-meter): restore hook lifecycle across restarts (d7f9b36)
+- Fix(overlay): hide chrome when game is minimized (aedd7ff)
+- Fix(overlay): restore single-window reposition mode (0a3db83)
+
+### Documentation
+
+- Docs: update formatting and loot notes (1be0b23)
+- Docs: drop landed plans and specs for past features (59a457d)
+
+### Features
+
+- Feat(overlay): unified widget repositioning module (6929406)
+- Feat(dps-meter): add live DPS overlay via inline hook on Ord10887 (a613a50)
+
+### Miscellaneous
+
+- Chore(format): enforce project formatters (549bcde)
+
+### Other
+
+- 1.24.0 (3eeac3b)
+
+### Performance
+
+- Perf(loot-filter): reduce large-filter matching latency (3394422)
+
+### Refactor
+
+- Refactor(loot-filter): remove unused filter toggle (40c3e4a)
+
 ## v1.23.0 — 2026-05-06
 
 ### Bug Fixes
 
 - Fix(loot-filter): skip runtime-name match for rare items (34c2ae3)
-
-### Documentation
-
-- Docs: update CHANGELOG.md (9350442)
 
 ### Features
 
@@ -24,10 +78,6 @@
 
 - Fix(loot-filter): scan full D2Sigma.dll instead of hardcoded 2MB (79bbe1f)
 - Fix(scanner): AOB-resolve always-show-items struct after MXL patch (f9f5721)
-
-### Documentation
-
-- Docs: update CHANGELOG.md (43ada94)
 
 ### Features
 
@@ -65,10 +115,6 @@
 ### Bug Fixes
 
 - Fix(ci): generate changelog before build so binary embeds current version (8f8ea3a)
-
-### Documentation
-
-- Docs: update CHANGELOG.md (2c0fe6f)
 
 ### Other
 
