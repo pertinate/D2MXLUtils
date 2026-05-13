@@ -105,6 +105,9 @@ pub struct AppSettings {
     #[serde(default)]
     pub compact_name: bool,
 
+    #[serde(default)]
+    pub show_only_matched_stats: bool,
+
     /// Hotkey configuration for toggling main window
     #[serde(default)]
     pub toggle_window_hotkey: HotkeyConfig,
@@ -222,6 +225,7 @@ impl Default for AppSettings {
             notification_font_size: default_notification_font_size(),
             notification_opacity: default_notification_opacity(),
             compact_name: false,
+            show_only_matched_stats: false,
             toggle_window_hotkey: HotkeyConfig::default(),
             edit_overlay_hotkey: default_edit_overlay_hotkey(),
             reveal_hidden_hotkey: default_reveal_hidden_hotkey(),

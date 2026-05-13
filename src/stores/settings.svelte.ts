@@ -62,6 +62,7 @@ export interface AppSettings {
   /** When true, drop the unique/set name line for Set/TU/SU/SSU/SSSU items
    *  and show only the base type. Stat-flagged rules ignore this. */
   compactName: boolean;
+  showOnlyMatchedStats: boolean;
   /** Hotkey configuration for toggling main window */
   toggleWindowHotkey: HotkeyConfig;
   /** Hotkey held to enter overlay edit mode (drag notification anchor) */
@@ -137,6 +138,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   notificationFontSize: 14,
   notificationOpacity: 0.9,
   compactName: false,
+  showOnlyMatchedStats: false,
   toggleWindowHotkey: DEFAULT_HOTKEY,
   editOverlayHotkey: DEFAULT_EDIT_OVERLAY_HOTKEY,
   revealHiddenHotkey: DEFAULT_REVEAL_HIDDEN_HOTKEY,

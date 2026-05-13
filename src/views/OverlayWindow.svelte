@@ -44,6 +44,7 @@
   let notificationFontSize = $derived(settingsStore.settings.notificationFontSize);
   let notificationOpacity = $derived(settingsStore.settings.notificationOpacity);
   let compactName = $derived(settingsStore.settings.compactName);
+  let showOnlyMatchedStats = $derived(settingsStore.settings.showOnlyMatchedStats);
   let soundVolume = $derived(settingsStore.settings.soundVolume);
 
   let editActive = $state(false);
@@ -176,6 +177,7 @@
     fontSize={notificationFontSize}
     opacity={notificationOpacity}
     {compactName}
+    {showOnlyMatchedStats}
   />
   <AlwaysShowItemsIndicator />
   {#if historyVisible}

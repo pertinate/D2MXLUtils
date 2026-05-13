@@ -31,6 +31,7 @@
     fontSize?: number;
     opacity?: number;
     compactName?: boolean;
+    showOnlyMatchedStats?: boolean;
   }
 
   let {
@@ -39,6 +40,7 @@
     fontSize = 14,
     opacity = 0.9,
     compactName = false,
+    showOnlyMatchedStats = false,
   }: Props = $props();
 
   let pos = $derived(widgetPosition('notifications'));
@@ -47,7 +49,14 @@
 
 <div class="notification-stack" style="top: {pos.y}%; left: {pos.x}%;">
   {#each visibleItems as item (item.unit_id)}
-    <Notification {item} exiting={item.exiting ?? false} {fontSize} {opacity} {compactName} />
+    <Notification
+      {item}
+      exiting={item.exiting ?? false}
+      {fontSize}
+      {opacity}
+      {compactName}
+      {showOnlyMatchedStats}
+    />
   {/each}
 </div>
 

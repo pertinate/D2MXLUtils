@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { selectNotificationStatLineEntries } from '../lib/notification-stats';
+
   type UniqueKind = 'tu' | 'su' | 'ssu' | 'sssu';
 
   interface NotificationFilter {
@@ -27,6 +29,7 @@
     fontSize?: number;
     opacity?: number;
     compactName?: boolean;
+    showOnlyMatchedStats?: boolean;
   }
 
   let {
@@ -35,6 +38,7 @@
     fontSize = 14,
     opacity = 0.9,
     compactName = false,
+    showOnlyMatchedStats = false,
   }: Props = $props();
 
   const qualityColors: Record<string, string> = {
@@ -75,7 +79,15 @@
   const isLargeDrop = $derived(item.quality === 'Set' || item.quality === 'Unique');
 
   const showStats = $derived(item.filter?.display_stats === true && item.stats.length > 0);
-  const statLines = $derived(showStats ? item.stats.split('\n') : []);
+  const statLineEntries = $derived(
+    showStats
+      ? selectNotificationStatLineEntries(
+          item.stats,
+          item.filter?.matched_stat_lines,
+          showOnlyMatchedStats,
+        )
+      : [],
+  );
   const matchedLineIdxSet = $derived(new Set(item.filter?.matched_stat_lines ?? []));
 
   // Compact-name yields a single line, but the stat-flag exception keeps
@@ -107,8 +119,10 @@
   {/if}
   {#if showStats}
     <div class="item-stats">
-      {#each statLines as line, i}
-        <div class="stat-line" class:matched={matchedLineIdxSet.has(i)}>{line}</div>
+      {#each statLineEntries as statLine}
+        <div class="stat-line" class:matched={matchedLineIdxSet.has(statLine.originalIndex)}>
+          {statLine.line}
+        </div>
       {/each}
     </div>
   {/if}

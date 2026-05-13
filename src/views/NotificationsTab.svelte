@@ -47,11 +47,11 @@
     filter: { display_stats: true, matched_stat_lines: [0, 1] },
   };
 
-  // Local reactive bindings to store values
   let duration = $derived(settingsStore.settings.notificationDuration);
   let fontSize = $derived(settingsStore.settings.notificationFontSize);
   let opacity = $derived(settingsStore.settings.notificationOpacity);
   let compactName = $derived(settingsStore.settings.compactName);
+  let showOnlyMatchedStats = $derived(settingsStore.settings.showOnlyMatchedStats);
 
   function setDuration(value: number) {
     const clamped = Math.max(1000, Math.min(30000, value));
@@ -71,6 +71,10 @@
   function setCompactName(value: boolean) {
     settingsStore.set('compactName', value);
   }
+
+  function setShowOnlyMatchedStats(value: boolean) {
+    settingsStore.set('showOnlyMatchedStats', value);
+  }
 </script>
 
 <section class="tab-content">
@@ -79,7 +83,6 @@
     <p class="section-description">Customize how item drop notifications appear in the overlay.</p>
 
     <div class="settings-grid">
-      <!-- Duration -->
       <div class="setting-row">
         <div class="setting-info">
           <label class="setting-label" for="duration">Display Duration</label>
@@ -100,7 +103,6 @@
         </div>
       </div>
 
-      <!-- Font Size -->
       <div class="setting-row">
         <div class="setting-info">
           <label class="setting-label" for="font-size">Size</label>
@@ -121,7 +123,6 @@
         </div>
       </div>
 
-      <!-- Opacity -->
       <div class="setting-row">
         <div class="setting-info">
           <label class="setting-label" for="opacity">Background Opacity</label>
@@ -142,7 +143,6 @@
         </div>
       </div>
 
-      <!-- Compact name -->
       <div class="setting-row">
         <div class="setting-info">
           <label class="setting-label" for="compact-name">Compact name</label>
@@ -155,16 +155,44 @@
           <Toggle id="compact-name" checked={compactName} onchange={setCompactName} />
         </div>
       </div>
+
+      <div class="setting-row">
+        <div class="setting-info">
+          <label class="setting-label" for="show-only-matched-stats">Matched stats only</label>
+          <span class="setting-hint">
+            For rules with <code>&#123;stat regex&#125;</code>, show only matched stat lines.
+            Multi-line regex matches fall back to all stats.
+          </span>
+        </div>
+        <div class="setting-control">
+          <Toggle
+            id="show-only-matched-stats"
+            checked={showOnlyMatchedStats}
+            onchange={setShowOnlyMatchedStats}
+          />
+        </div>
+      </div>
     </div>
   </div>
 
-  <!-- Preview -->
   <div class="preview-section">
     <h3 class="preview-title">Preview</h3>
     <div class="preview-container">
-      <Notification item={previewPlain} {fontSize} {opacity} {compactName} />
-      <Notification item={previewWithStats} {fontSize} {opacity} {compactName} />
-      <Notification item={previewWithMatch} {fontSize} {opacity} {compactName} />
+      <Notification item={previewPlain} {fontSize} {opacity} {compactName} {showOnlyMatchedStats} />
+      <Notification
+        item={previewWithStats}
+        {fontSize}
+        {opacity}
+        {compactName}
+        {showOnlyMatchedStats}
+      />
+      <Notification
+        item={previewWithMatch}
+        {fontSize}
+        {opacity}
+        {compactName}
+        {showOnlyMatchedStats}
+      />
     </div>
   </div>
 </section>
@@ -283,7 +311,6 @@
     text-align: right;
   }
 
-  /* Preview */
   .preview-section {
     display: flex;
     flex-direction: column;
