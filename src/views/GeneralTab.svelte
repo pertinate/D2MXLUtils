@@ -5,6 +5,7 @@
 
   let verboseFilterLogging = $derived(settingsStore.settings.verboseFilterLogging);
   let autoAlwaysShowItems = $derived(settingsStore.settings.autoAlwaysShowItems);
+  let autoNoPickup = $derived(settingsStore.settings.autoNoPickup);
   let dpsMeterEnabled = $derived(settingsStore.settings.dpsMeter?.enabled ?? false);
 
   const UNBOUND_HOTKEY: HotkeyConfig = { keyCode: 0, modifiers: 0, display: 'None' };
@@ -147,6 +148,10 @@
     settingsStore.setAutoAlwaysShowItems(enabled);
   }
 
+  function handleAutoNoPickupChange(enabled: boolean) {
+    settingsStore.setAutoNoPickup(enabled);
+  }
+
   let showChangelog = $state(false);
   let changelogHtml = $state('');
 
@@ -256,6 +261,16 @@
         >
       </div>
       <Toggle checked={autoAlwaysShowItems} onchange={handleAutoAlwaysShowItemsChange} />
+    </div>
+
+    <div class="setting-row">
+      <div class="setting-info">
+        <span class="setting-label">Auto-enable /nopickup on new game</span>
+        <span class="setting-hint"
+          >Prevents accidental pickup; changes in game apply immediately.</span
+        >
+      </div>
+      <Toggle checked={autoNoPickup} onchange={handleAutoNoPickupChange} />
     </div>
 
     <div class="setting-row">

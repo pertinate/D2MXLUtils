@@ -74,6 +74,7 @@ export interface AppSettings {
   /** When true, scanner logs per-item filter decisions (noisy; opt-in debug). */
   verboseFilterLogging: boolean;
   autoAlwaysShowItems: boolean;
+  autoNoPickup: boolean;
   /** Per-slot drop sounds. Slot index = position + 1.
    *  Played gain = `soundVolume * slot.volume`. */
   sounds: SoundSlot[];
@@ -145,6 +146,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   lootHistoryHotkey: DEFAULT_LOOT_HISTORY_HOTKEY,
   verboseFilterLogging: false,
   autoAlwaysShowItems: true,
+  autoNoPickup: true,
   sounds: defaultSounds(),
   goblinAlertSlot: null,
   dpsMeter: {
@@ -430,6 +432,15 @@ class SettingsStore {
       await invoke('set_auto_always_show_items', { enabled });
     } catch (error) {
       console.error('[Settings] Failed to update auto always show items:', error);
+    }
+  }
+
+  async setAutoNoPickup(enabled: boolean): Promise<void> {
+    this.set('autoNoPickup', enabled);
+    try {
+      await invoke('set_auto_no_pickup', { enabled });
+    } catch (error) {
+      console.error('[Settings] Failed to update auto /nopickup:', error);
     }
   }
 }

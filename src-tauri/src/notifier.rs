@@ -376,6 +376,11 @@ impl DropScanner {
         Ok(Some(value != 0))
     }
 
+    pub fn set_no_pickup(&self, on: bool) -> Result<(), String> {
+        let (addr, bytes) = no_pickup_flag_write(self.state.ctx.d2_client, on);
+        self.state.ctx.process.write_buffer(addr, &bytes)
+    }
+
     pub fn clear_cache(&mut self) {
         self.seen_items.clear();
         self.seen_goblins.clear();
@@ -1586,6 +1591,31 @@ impl DropScanner {
     }
 }
 
+#[cfg(target_os = "windows")]
+fn no_pickup_flag_write(d2_client: usize, on: bool) -> (usize, [u8; 1]) {
+    (d2_client + d2client::NO_PICKUP_FLAG, [u8::from(on)])
+}
+
+#[cfg(all(test, target_os = "windows"))]
+mod no_pickup_tests {
+    use super::*;
+
+    #[test]
+    fn no_pickup_write_targets_d2client_flag_byte() {
+        let (addr, bytes) = no_pickup_flag_write(0x1000_0000, true);
+
+        assert_eq!(addr, 0x1000_0000 + d2client::NO_PICKUP_FLAG);
+        assert_eq!(bytes, [1]);
+    }
+
+    #[test]
+    fn no_pickup_write_can_disable_flag() {
+        let (_, bytes) = no_pickup_flag_write(0x1000_0000, false);
+
+        assert_eq!(bytes, [0]);
+    }
+}
+
 #[cfg(all(test, target_os = "windows"))]
 mod tests {
     use super::*;
@@ -1742,6 +1772,10 @@ impl DropScanner {
 
     pub fn read_always_show_items(&self) -> Result<Option<bool>, String> {
         Ok(None)
+    }
+
+    pub fn set_no_pickup(&self, _on: bool) -> Result<(), String> {
+        Ok(())
     }
 
     pub fn clear_cache(&mut self) {}

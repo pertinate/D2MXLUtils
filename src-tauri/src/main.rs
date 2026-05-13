@@ -85,6 +85,7 @@ struct AppState {
     /// When true, scanner logs per-item filter decisions (noisy; opt-in for debugging).
     verbose_filter_logging: Arc<AtomicBool>,
     auto_always_show_items: Arc<AtomicBool>,
+    auto_no_pickup: Arc<AtomicBool>,
     /// Driven by the reveal-hidden hotkey watcher; mirrored into the hook.
     reveal_hidden_active: Arc<AtomicBool>,
     filter_config_generation: Arc<AtomicU64>,
@@ -157,6 +158,7 @@ fn start_scanner_internal(
     filter_config: Arc<RwLock<Option<rules::FilterConfig>>>,
     verbose_filter_logging: Arc<AtomicBool>,
     auto_always_show_items: Arc<AtomicBool>,
+    auto_no_pickup: Arc<AtomicBool>,
     reveal_hidden_active: Arc<AtomicBool>,
     filter_config_generation: Arc<AtomicU64>,
     scanner_thread: Arc<Mutex<Option<JoinHandle<()>>>>,
@@ -321,11 +323,13 @@ fn start_scanner_internal(
             if let Err(e) = scanner.set_force_show_all(last_reveal) {
                 log_error(&format!("Initial set_force_show_all failed: {}", e));
             }
+            let mut last_auto_no_pickup = auto_no_pickup.load(Ordering::SeqCst);
 
             let mut was_ingame = false;
             let mut dict_published = false;
             let mut weapon_bases_published = false;
             let mut pending_set_always_show = false;
+            let mut pending_set_no_pickup: Option<bool> = None;
             let mut last_emitted_always_show: Option<bool> = None;
             // Area-change check throttle (~150 ms at 30 ms tick).
             let mut dps_area_tick_counter: u32 = 0;
@@ -364,12 +368,15 @@ fn start_scanner_internal(
                         log_error(&format!("Failed to emit loot-history-cleared: {}", e));
                     }
                     pending_set_always_show = true;
+                    last_auto_no_pickup = auto_no_pickup.load(Ordering::SeqCst);
+                    pending_set_no_pickup = last_auto_no_pickup.then_some(true);
                     last_emitted_always_show = None;
                     if let Err(e) = app_handle.emit("game-status", "ingame") {
                         log_error(&format!("Failed to emit event (ingame): {}", e));
                     }
                 } else if !ingame && was_ingame {
                     pending_set_always_show = false;
+                    pending_set_no_pickup = None;
                     last_emitted_always_show = None;
                     // Exiting to menu: every still-Pending entry is
                     // effectively lost from this session — broadcast each
@@ -427,6 +434,12 @@ fn start_scanner_internal(
                     last_reveal = current_reveal;
                 }
 
+                let current_auto_no_pickup = auto_no_pickup.load(Ordering::SeqCst);
+                if ingame && current_auto_no_pickup != last_auto_no_pickup {
+                    pending_set_no_pickup = Some(current_auto_no_pickup);
+                    last_auto_no_pickup = current_auto_no_pickup;
+                }
+
                 // Scan for items
                 if ingame {
                     if pending_set_always_show
@@ -444,6 +457,12 @@ fn start_scanner_internal(
                                 ));
                                 pending_set_always_show = false;
                             }
+                        }
+                    }
+
+                    if let Some(target_no_pickup) = pending_set_no_pickup.take() {
+                        if let Err(e) = scanner.set_no_pickup(target_no_pickup) {
+                            log_error(&format!("set_no_pickup failed: {}", e));
                         }
                     }
 
@@ -747,6 +766,7 @@ fn spawn_auto_scanner(
     filter_config: Arc<RwLock<Option<rules::FilterConfig>>>,
     verbose_filter_logging: Arc<AtomicBool>,
     auto_always_show_items: Arc<AtomicBool>,
+    auto_no_pickup: Arc<AtomicBool>,
     reveal_hidden_active: Arc<AtomicBool>,
     filter_config_generation: Arc<AtomicU64>,
     scanner_thread: Arc<Mutex<Option<JoinHandle<()>>>>,
@@ -767,6 +787,7 @@ fn spawn_auto_scanner(
                     filter_config.clone(),
                     verbose_filter_logging.clone(),
                     auto_always_show_items.clone(),
+                    auto_no_pickup.clone(),
                     reveal_hidden_active.clone(),
                     filter_config_generation.clone(),
                     scanner_thread.clone(),
@@ -866,6 +887,12 @@ fn set_auto_always_show_items(enabled: bool, state: tauri::State<AppState>) {
     state
         .auto_always_show_items
         .store(enabled, Ordering::SeqCst);
+}
+
+/// Enable or disable auto-enabling Diablo II's no-pickup flag on game entry.
+#[tauri::command]
+fn set_auto_no_pickup(enabled: bool, state: tauri::State<AppState>) {
+    state.auto_no_pickup.store(enabled, Ordering::SeqCst);
 }
 
 #[tauri::command]
@@ -1571,6 +1598,7 @@ fn main() {
                 filter_config: Arc::new(RwLock::new(initial_filter_config)),
                 verbose_filter_logging: Arc::new(AtomicBool::new(false)),
                 auto_always_show_items: Arc::new(AtomicBool::new(true)),
+                auto_no_pickup: Arc::new(AtomicBool::new(true)),
                 reveal_hidden_active: Arc::new(AtomicBool::new(false)),
                 filter_config_generation: Arc::new(AtomicU64::new(0)),
                 scanner_thread: Arc::new(Mutex::new(None)),
@@ -1587,6 +1615,7 @@ fn main() {
             let filter_config = state.filter_config.clone();
             let verbose_filter_logging = state.verbose_filter_logging.clone();
             let auto_always_show_items = state.auto_always_show_items.clone();
+            let auto_no_pickup = state.auto_no_pickup.clone();
             let reveal_hidden_active = state.reveal_hidden_active.clone();
             let filter_config_generation = state.filter_config_generation.clone();
             let scanner_thread = state.scanner_thread.clone();
@@ -1641,6 +1670,7 @@ fn main() {
                         .store(loaded_settings.verbose_filter_logging, Ordering::SeqCst);
                     auto_always_show_items
                         .store(loaded_settings.auto_always_show_items, Ordering::SeqCst);
+                    auto_no_pickup.store(loaded_settings.auto_no_pickup, Ordering::SeqCst);
                 }
                 Err(e) => {
                     log_error(&format!("Failed to load settings for hotkeys: {}", e));
@@ -1669,6 +1699,7 @@ fn main() {
                 filter_config.clone(),
                 verbose_filter_logging.clone(),
                 auto_always_show_items.clone(),
+                auto_no_pickup.clone(),
                 reveal_hidden_active.clone(),
                 filter_config_generation.clone(),
                 scanner_thread.clone(),
@@ -1735,6 +1766,7 @@ fn main() {
             set_filter_config,
             set_verbose_filter_logging,
             set_auto_always_show_items,
+            set_auto_no_pickup,
             set_breakpoints_polling,
             get_speedcalc_data,
             refresh_speedcalc_data,

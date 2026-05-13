@@ -131,6 +131,9 @@ pub struct AppSettings {
     #[serde(default = "default_auto_always_show_items")]
     pub auto_always_show_items: bool,
 
+    #[serde(default = "default_auto_no_pickup")]
+    pub auto_no_pickup: bool,
+
     /// Per-slot drop sounds. Slot index = element position + 1.
     /// Final played gain = `sound_volume * slot.volume`.
     #[serde(default = "default_sounds")]
@@ -190,6 +193,10 @@ fn default_auto_always_show_items() -> bool {
     true
 }
 
+fn default_auto_no_pickup() -> bool {
+    true
+}
+
 fn default_edit_overlay_hotkey() -> HotkeyConfig {
     HotkeyConfig {
         key_code: 0,
@@ -232,6 +239,7 @@ impl Default for AppSettings {
             loot_history_hotkey: default_loot_history_hotkey(),
             verbose_filter_logging: false,
             auto_always_show_items: default_auto_always_show_items(),
+            auto_no_pickup: default_auto_no_pickup(),
             sounds: default_sounds(),
             goblin_alert_slot: None,
             dps_meter: DpsMeterSettings::default(),
@@ -389,6 +397,12 @@ mod tests {
             assert!(matches!(slot.source, SoundSource::Default));
         }
         assert_eq!(settings.sound_volume, 0.5);
+        assert!(settings.auto_no_pickup);
+    }
+
+    #[test]
+    fn default_settings_enable_auto_no_pickup() {
+        assert!(AppSettings::default().auto_no_pickup);
     }
 
     #[test]
