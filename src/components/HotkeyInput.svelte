@@ -20,6 +20,12 @@
   const MOD_SHIFT = 0x0004;
   const MOD_WIN = 0x0008;
 
+  const MOUSE_KEYS: Record<number, [number, string]> = {
+    1: [0x04, 'Mouse3'],
+    3: [0x05, 'Mouse4'],
+    4: [0x06, 'Mouse5'],
+  };
+
   // Special keys mapping (code -> [vk, displayName])
   const SPECIAL_KEYS: Record<string, [number, string]> = {
     Space: [0x20, 'Space'],
@@ -81,6 +87,9 @@
     if (vk >= 0x41 && vk <= 0x5a) return String.fromCharCode(vk); // A-Z
     if (vk >= 0x30 && vk <= 0x39) return String.fromCharCode(vk); // 0-9
     if (vk >= 0x70 && vk <= 0x7b) return `F${vk - 0x6f}`; // F1-F12
+    for (const [, [code, name]] of Object.entries(MOUSE_KEYS)) {
+      if (code === vk) return name;
+    }
     // Reverse lookup in special keys
     for (const [, [code, name]] of Object.entries(SPECIAL_KEYS)) {
       if (code === vk) return name;
@@ -98,7 +107,7 @@
     return parts.join('+');
   }
 
-  function modifiersFromEvent(e: KeyboardEvent): number {
+  function modifiersFromEvent(e: KeyboardEvent | MouseEvent): number {
     let modifiers = 0;
     if (e.ctrlKey) modifiers |= MOD_CONTROL;
     if (e.shiftKey) modifiers |= MOD_SHIFT;
@@ -130,6 +139,20 @@
     if (!result) return;
     const [keyCode] = result;
 
+    const modifiers = modifiersFromEvent(e);
+    commit({ keyCode, modifiers, display: buildDisplayString(modifiers, keyCode) });
+  }
+
+  function handleMouseDown(e: MouseEvent) {
+    if (!isRecording) return;
+
+    const result = MOUSE_KEYS[e.button];
+    if (!result) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    const [keyCode] = result;
     const modifiers = modifiersFromEvent(e);
     commit({ keyCode, modifiers, display: buildDisplayString(modifiers, keyCode) });
   }
@@ -169,6 +192,7 @@
     }}
     onkeydown={handleKeyDown}
     onkeyup={handleKeyUp}
+    onmousedown={handleMouseDown}
     onblur={handleBlur}
   >
     {#if isRecording}

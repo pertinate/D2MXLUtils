@@ -49,6 +49,10 @@ impl Default for HotkeyConfig {
     }
 }
 
+fn is_mouse_hotkey_key(key_code: u32) -> bool {
+    (0x04..=0x06).contains(&key_code)
+}
+
 /// Global state for hotkey management
 pub struct HotkeyState {
     is_running: Arc<AtomicBool>,
@@ -141,6 +145,27 @@ fn hotkey_thread_windows(is_running: Arc<AtomicBool>, app_handle: AppHandle, hot
         "Hotkey thread starting with: {} (key={:#x}, mods={:#x})",
         hotkey.display, hotkey.key_code, hotkey.modifiers
     ));
+
+    if is_mouse_hotkey_key(hotkey.key_code) {
+        log_info(&format!(
+            "Mouse hotkey {} using polling watcher",
+            hotkey.display
+        ));
+
+        let mut prev_down = false;
+        while is_running.load(Ordering::SeqCst) {
+            let active = chord_keys_are_pressed(&hotkey);
+            if active && !prev_down {
+                log_info("Toggle main window mouse hotkey pressed");
+                toggle_main_window(&app_handle);
+            }
+            prev_down = active;
+            thread::sleep(std::time::Duration::from_millis(30));
+        }
+
+        log_info("Mouse hotkey thread stopped");
+        return;
+    }
 
     // Register the hotkey
     let modifiers = HOT_KEY_MODIFIERS(hotkey.modifiers) | MOD_NOREPEAT;
@@ -316,14 +341,19 @@ fn is_key_down(vk: u16) -> bool {
 
 #[cfg(target_os = "windows")]
 fn chord_is_pressed(hk: &HotkeyConfig) -> bool {
+    if !is_d2_or_app_foreground() {
+        return false;
+    }
+
+    chord_keys_are_pressed(hk)
+}
+
+#[cfg(target_os = "windows")]
+fn chord_keys_are_pressed(hk: &HotkeyConfig) -> bool {
     const MOD_ALT: u32 = 0x0001;
     const MOD_CONTROL: u32 = 0x0002;
     const MOD_SHIFT: u32 = 0x0004;
     const MOD_WIN: u32 = 0x0008;
-
-    if !is_d2_or_app_foreground() {
-        return false;
-    }
 
     if hk.key_code == 0 && hk.modifiers == 0 {
         return false;
@@ -556,11 +586,7 @@ impl LootHistoryHotkeyState {
     pub fn new() -> Self {
         Self {
             is_running: Arc::new(AtomicBool::new(false)),
-            current_hotkey: Arc::new(std::sync::Mutex::new(HotkeyConfig {
-                key_code: 0x4E, // 'N'
-                modifiers: 0,
-                display: "N".to_string(),
-            })),
+            current_hotkey: Arc::new(std::sync::Mutex::new(default_loot_history_hotkey())),
         }
     }
 
@@ -601,6 +627,14 @@ impl LootHistoryHotkeyState {
 impl Default for LootHistoryHotkeyState {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+fn default_loot_history_hotkey() -> HotkeyConfig {
+    HotkeyConfig {
+        key_code: 0x4E,
+        modifiers: 0x0001,
+        display: "Alt+N".to_string(),
     }
 }
 

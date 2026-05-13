@@ -205,9 +205,9 @@ fn default_reveal_hidden_hotkey() -> HotkeyConfig {
 
 fn default_loot_history_hotkey() -> HotkeyConfig {
     HotkeyConfig {
-        key_code: 0x4E, // 'N'
-        modifiers: 0,
-        display: "N".to_string(),
+        key_code: 0x4E,
+        modifiers: 0x0001,
+        display: "Alt+N".to_string(),
     }
 }
 

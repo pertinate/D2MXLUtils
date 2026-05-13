@@ -114,9 +114,9 @@ const DEFAULT_REVEAL_HIDDEN_HOTKEY: HotkeyConfig = {
 };
 
 const DEFAULT_LOOT_HISTORY_HOTKEY: HotkeyConfig = {
-  keyCode: 0x4e, // 'N'
-  modifiers: 0,
-  display: 'N',
+  keyCode: 0x4e,
+  modifiers: 0x0001,
+  display: 'Alt+N',
 };
 
 function defaultSounds(): SoundSlot[] {
