@@ -8,6 +8,7 @@
     itemQualityColor,
     type MxlItemDetail,
     type MxlItemEntry,
+    type MxlItemSearchMode,
     type MxlItemSearchResult,
     type OpenItemSearchPayload,
   } from '../lib/mxl-item-search';
@@ -19,6 +20,9 @@
   };
 
   let { onActiveChange } = $props<{ onActiveChange: (active: boolean) => void | Promise<void> }>();
+
+  const TYPEAHEAD_DELAY_MS = 180;
+  const MIN_TYPEAHEAD_CHARS = 2;
 
   let open = $state(false);
   let inputValue = $state('');
@@ -32,12 +36,73 @@
   let searchRequestId = 0;
   let detailRequestId = 0;
   let autoOpenSingleDetailedResult = false;
+  let typeaheadTimer: number | null = null;
+  let skipTypeaheadValue: string | null = null;
 
   const active = $derived(open || tooltip !== null);
   let pos = $derived(widgetPosition('item-search'));
 
   $effect(() => {
     onActiveChange(active);
+  });
+
+  $effect(() => {
+    const value = inputValue;
+    if (!open) return;
+
+    if (typeaheadTimer !== null) {
+      window.clearTimeout(typeaheadTimer);
+      typeaheadTimer = null;
+    }
+
+    const q = value.trim();
+    if (!q) {
+      searchRequestId += 1;
+      detailRequestId += 1;
+      entries = [];
+      tooltip = null;
+      loading = false;
+      loadingName = null;
+      message = '';
+      skipTypeaheadValue = null;
+      return;
+    }
+
+    if (skipTypeaheadValue && q === skipTypeaheadValue) {
+      return;
+    }
+    skipTypeaheadValue = null;
+
+    if (q.length < MIN_TYPEAHEAD_CHARS) {
+      searchRequestId += 1;
+      detailRequestId += 1;
+      entries = [];
+      tooltip = null;
+      loading = false;
+      loadingName = null;
+      message = 'Type at least 2 characters to search.';
+      return;
+    }
+
+    searchRequestId += 1;
+    detailRequestId += 1;
+    entries = [];
+    tooltip = null;
+    loading = false;
+    loadingName = null;
+    message = '';
+
+    typeaheadTimer = window.setTimeout(() => {
+      typeaheadTimer = null;
+      void runSearch(q, 'index');
+    }, TYPEAHEAD_DELAY_MS);
+
+    return () => {
+      if (typeaheadTimer !== null) {
+        window.clearTimeout(typeaheadTimer);
+        typeaheadTimer = null;
+      }
+    };
   });
 
   function focusInput() {
@@ -53,32 +118,41 @@
     inputValue = query ?? '';
     message = '';
     autoOpenSingleDetailedResult = Boolean(query && query.trim());
+    skipTypeaheadValue = query?.trim() || null;
     await onActiveChange(true);
     focusInput();
     if (query && query.trim()) {
-      void runSearch(query);
+      void runSearch(query, 'detail', autoOpenSingleDetailedResult);
+      autoOpenSingleDetailedResult = false;
     }
   }
 
   function closeAll() {
     searchRequestId += 1;
     detailRequestId += 1;
+    if (typeaheadTimer !== null) {
+      window.clearTimeout(typeaheadTimer);
+      typeaheadTimer = null;
+    }
     open = false;
     tooltip = null;
     loading = false;
     loadingName = null;
     autoOpenSingleDetailedResult = false;
     message = '';
+    skipTypeaheadValue = null;
   }
 
   function moveWindow(position: WindowPosition) {
     setWidgetPosition('item-search', position.x, position.y);
   }
 
-  async function runSearch(query = inputValue) {
+  async function runSearch(
+    query = inputValue,
+    mode: MxlItemSearchMode = 'index',
+    shouldAutoOpenSingleDetailedResult = false,
+  ) {
     const q = query.trim();
-    const shouldAutoOpenSingleDetailedResult = autoOpenSingleDetailedResult;
-    autoOpenSingleDetailedResult = false;
     if (!q) return;
     const requestId = ++searchRequestId;
     detailRequestId += 1;
@@ -87,7 +161,7 @@
     tooltip = null;
     message = '';
     try {
-      const result = await invoke<MxlItemSearchResult>('search_mxl_items', { query: q });
+      const result = await invoke<MxlItemSearchResult>('search_mxl_items', { query: q, mode });
       if (requestId !== searchRequestId) return;
       applyResult(result, shouldAutoOpenSingleDetailedResult);
     } catch (err) {
@@ -145,7 +219,10 @@
     loadingName = entry.name;
     message = '';
     try {
-      const result = await invoke<MxlItemSearchResult>('search_mxl_items', { query: entry.name });
+      const result = await invoke<MxlItemSearchResult>('search_mxl_items', {
+        query: entry.name,
+        mode: 'detail',
+      });
       if (requestId !== detailRequestId) return;
       const detail = detailFromResult(result, entry.name);
       if (detail) tooltip = detail;
@@ -281,7 +358,12 @@
           class="search-form"
           onsubmit={(event) => {
             event.preventDefault();
-            void runSearch();
+            if (typeaheadTimer !== null) {
+              window.clearTimeout(typeaheadTimer);
+              typeaheadTimer = null;
+            }
+            skipTypeaheadValue = null;
+            void runSearch(inputValue, 'index');
           }}
         >
           <input
@@ -289,7 +371,7 @@
             bind:value={inputValue}
             autocomplete="off"
             spellcheck="false"
-            placeholder="Type item name and press Enter"
+            placeholder="Type at least 2 characters"
           />
         </form>
 
@@ -451,6 +533,35 @@
     max-height: min(360px, 46vh);
     overflow-y: auto;
     padding: 0 8px 10px;
+  }
+
+  .results,
+  .item-tooltip {
+    scrollbar-color: rgba(214, 192, 132, 0.78) rgba(8, 7, 5, 0.72);
+    scrollbar-width: thin;
+  }
+
+  .results::-webkit-scrollbar,
+  .item-tooltip::-webkit-scrollbar {
+    width: 7px;
+  }
+
+  .results::-webkit-scrollbar-track,
+  .item-tooltip::-webkit-scrollbar-track {
+    background: rgba(8, 7, 5, 0.72);
+    border-left: 1px solid rgba(199, 179, 119, 0.18);
+  }
+
+  .results::-webkit-scrollbar-thumb,
+  .item-tooltip::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg, rgba(231, 211, 150, 0.92), rgba(150, 126, 71, 0.9));
+    border: 1px solid rgba(0, 0, 0, 0.62);
+    border-radius: 0;
+  }
+
+  .results::-webkit-scrollbar-thumb:hover,
+  .item-tooltip::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(180deg, rgba(246, 228, 169, 0.98), rgba(178, 150, 87, 0.96));
   }
 
   .result-row {

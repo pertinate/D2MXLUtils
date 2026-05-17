@@ -11,10 +11,12 @@ use serde::{Deserialize, Serialize};
 const API_URL: &str = "https://tsw.vn.cz/stats/api_item.php";
 const RATE_LIMIT_COUNT: usize = 10;
 const RATE_LIMIT_WINDOW: Duration = Duration::from_secs(10);
+const TYPEAHEAD_MIN_QUERY_LEN: usize = 2;
 const TOO_MANY_MATCHES_MESSAGE: &str = "Too many matches. Keep typing to narrow results.";
 const RATE_LIMIT_MESSAGE: &str = "Search is cooling down. Try again in a few seconds.";
 const SEARCH_FAILED_MESSAGE: &str = "Search failed. Check connection and try again.";
 const ITEM_NOT_FOUND_MESSAGE: &str = "Item not found";
+const TYPEAHEAD_MIN_QUERY_MESSAGE: &str = "Type at least 2 characters to search.";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -65,6 +67,21 @@ pub enum MxlItemSearchResult {
     },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MxlItemSearchMode {
+    Detail,
+    Index,
+}
+
+impl MxlItemSearchMode {
+    fn from_optional(value: Option<String>) -> Self {
+        match value.as_deref().map(str::trim) {
+            Some(mode) if mode.eq_ignore_ascii_case("index") => Self::Index,
+            _ => Self::Detail,
+        }
+    }
+}
+
 #[derive(Debug, Deserialize)]
 struct RawApiResponse {
     ok: Option<bool>,
@@ -103,8 +120,25 @@ struct RawMatch {
     type_name: String,
 }
 
+#[derive(Debug, Deserialize)]
+struct RawIndexResponse {
+    count: usize,
+    items: Vec<RawIndexItem>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawIndexItem {
+    name: String,
+    quality: String,
+    class: String,
+    #[serde(rename = "type", default)]
+    type_name: String,
+}
+
 pub struct MxlItemApiState {
     cache: Mutex<HashMap<String, MxlItemSearchResult>>,
+    index_cache: Mutex<Option<Vec<MxlItemEntry>>>,
+    index_load_lock: Mutex<()>,
     limiter: Mutex<RequestWindow>,
     agent: ureq::Agent,
 }
@@ -113,6 +147,8 @@ impl Default for MxlItemApiState {
     fn default() -> Self {
         Self {
             cache: Mutex::new(HashMap::new()),
+            index_cache: Mutex::new(None),
+            index_load_lock: Mutex::new(()),
             limiter: Mutex::new(RequestWindow::default()),
             agent: default_agent(),
         }
@@ -147,6 +183,61 @@ impl RequestWindow {
 
 fn normalize_query(query: &str) -> String {
     query.trim().to_lowercase()
+}
+
+fn normalized_contains(value: &str, query: &str) -> bool {
+    value.to_lowercase().contains(query)
+}
+
+fn index_match_rank(entry: &MxlItemEntry, query: &str) -> Option<u8> {
+    let name = entry.name.to_lowercase();
+    if name == query {
+        return Some(0);
+    }
+    if name.starts_with(query) {
+        return Some(1);
+    }
+    if name.contains(query) {
+        return Some(2);
+    }
+    if normalized_contains(&entry.class, query)
+        || normalized_contains(&entry.type_name, query)
+        || normalized_contains(&entry.quality, query)
+    {
+        return Some(3);
+    }
+    None
+}
+
+fn search_index_entries(query: &str, entries: &[MxlItemEntry]) -> MxlItemSearchResult {
+    let trimmed = query.trim();
+    let normalized = normalize_query(trimmed);
+
+    if normalized.len() < TYPEAHEAD_MIN_QUERY_LEN {
+        return MxlItemSearchResult::Results {
+            query: trimmed.to_string(),
+            entries: Vec::new(),
+            message: Some(TYPEAHEAD_MIN_QUERY_MESSAGE.to_string()),
+        };
+    }
+
+    let mut matches = entries
+        .iter()
+        .filter_map(|entry| index_match_rank(entry, &normalized).map(|rank| (rank, entry)))
+        .collect::<Vec<_>>();
+
+    matches.sort_by_cached_key(|(rank, entry)| (*rank, entry.name.to_lowercase()));
+
+    let entries = matches
+        .into_iter()
+        .map(|(_, entry)| entry.clone())
+        .collect::<Vec<_>>();
+
+    MxlItemSearchResult::Results {
+        query: trimmed.to_string(),
+        entries,
+        message: None,
+    }
 }
 
 fn percent_encode_query(input: &str) -> String {
@@ -209,6 +300,19 @@ fn fetch_from_api(agent: &ureq::Agent, trimmed: &str) -> MxlItemSearchResult {
     parse_api_response(trimmed, &body)
 }
 
+fn fetch_index_from_api(agent: &ureq::Agent) -> Result<Vec<MxlItemEntry>, String> {
+    let url = format!("{}?mode=index", API_URL);
+    let body = match agent.get(&url).call() {
+        Ok(response) => response
+            .into_body()
+            .read_to_string()
+            .map_err(|_| SEARCH_FAILED_MESSAGE.to_string())?,
+        Err(_) => return Err(SEARCH_FAILED_MESSAGE.to_string()),
+    };
+
+    parse_index_response(&body)
+}
+
 impl MxlItemApiState {
     fn cached_or_fetch(&self, query: &str, now: Instant) -> MxlItemSearchResult {
         let trimmed = query.trim();
@@ -259,14 +363,96 @@ impl MxlItemApiState {
         }
         result
     }
+
+    fn search_index(&self, query: &str, now: Instant) -> MxlItemSearchResult {
+        if normalize_query(query).len() < TYPEAHEAD_MIN_QUERY_LEN {
+            return search_index_entries(query, &[]);
+        }
+
+        match self.index_cache.lock() {
+            Ok(cache) => {
+                if let Some(entries) = cache.as_ref() {
+                    return search_index_entries(query, entries);
+                }
+            }
+            Err(_) => {
+                return MxlItemSearchResult::Error {
+                    query: query.trim().to_string(),
+                    message: SEARCH_FAILED_MESSAGE.to_string(),
+                }
+            }
+        }
+
+        let _load_guard = match self.index_load_lock.lock() {
+            Ok(guard) => guard,
+            Err(_) => {
+                return MxlItemSearchResult::Error {
+                    query: query.trim().to_string(),
+                    message: SEARCH_FAILED_MESSAGE.to_string(),
+                }
+            }
+        };
+
+        match self.index_cache.lock() {
+            Ok(cache) => {
+                if let Some(entries) = cache.as_ref() {
+                    return search_index_entries(query, entries);
+                }
+            }
+            Err(_) => {
+                return MxlItemSearchResult::Error {
+                    query: query.trim().to_string(),
+                    message: SEARCH_FAILED_MESSAGE.to_string(),
+                }
+            }
+        }
+
+        match self.limiter.lock() {
+            Ok(mut limiter) => {
+                if let Err(retry_after_ms) = limiter.check(now) {
+                    return MxlItemSearchResult::RateLimited {
+                        message: RATE_LIMIT_MESSAGE.to_string(),
+                        retry_after_ms,
+                    };
+                }
+            }
+            Err(_) => {
+                return MxlItemSearchResult::Error {
+                    query: query.trim().to_string(),
+                    message: SEARCH_FAILED_MESSAGE.to_string(),
+                }
+            }
+        }
+
+        let entries = match fetch_index_from_api(&self.agent) {
+            Ok(entries) => entries,
+            Err(message) => {
+                return MxlItemSearchResult::Error {
+                    query: query.trim().to_string(),
+                    message,
+                }
+            }
+        };
+
+        let result = search_index_entries(query, &entries);
+        if let Ok(mut cache) = self.index_cache.lock() {
+            *cache = Some(entries);
+        }
+        result
+    }
 }
 
 #[tauri::command]
 pub fn search_mxl_items(
     query: String,
+    mode: Option<String>,
     state: tauri::State<MxlItemApiState>,
 ) -> MxlItemSearchResult {
-    state.cached_or_fetch(&query, Instant::now())
+    let now = Instant::now();
+    match MxlItemSearchMode::from_optional(mode) {
+        MxlItemSearchMode::Detail => state.cached_or_fetch(&query, now),
+        MxlItemSearchMode::Index => state.search_index(&query, now),
+    }
 }
 
 fn parse_api_response(query: &str, body: &str) -> MxlItemSearchResult {
@@ -355,9 +541,42 @@ fn parse_api_response(query: &str, body: &str) -> MxlItemSearchResult {
     }
 }
 
+fn parse_index_response(body: &str) -> Result<Vec<MxlItemEntry>, String> {
+    let parsed: RawIndexResponse =
+        serde_json::from_str(body).map_err(|_| SEARCH_FAILED_MESSAGE.to_string())?;
+
+    let entries = parsed
+        .items
+        .into_iter()
+        .map(|item| MxlItemEntry {
+            name: item.name,
+            quality: item.quality,
+            class: item.class,
+            type_name: item.type_name,
+            detail: None,
+        })
+        .collect::<Vec<_>>();
+
+    if parsed.count != entries.len() {
+        return Err(SEARCH_FAILED_MESSAGE.to_string());
+    }
+
+    Ok(entries)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn index_entry(name: &str, quality: &str, class: &str, type_name: &str) -> MxlItemEntry {
+        MxlItemEntry {
+            name: name.to_string(),
+            quality: quality.to_string(),
+            class: class.to_string(),
+            type_name: type_name.to_string(),
+            detail: None,
+        }
+    }
 
     #[test]
     fn parses_full_items_response() {
@@ -423,6 +642,100 @@ mod tests {
                 assert_eq!(entries[0].name, "Sacred Charge");
                 assert_eq!(entries[0].detail, None);
                 assert_eq!(message, Some(TOO_MANY_MATCHES_MESSAGE.to_string()));
+            }
+            other => panic!("unexpected result: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parses_index_response_entries() {
+        let body = r#"{
+          "generated_at": "2026-05-17T10:00:00Z",
+          "count": 2,
+          "items": [
+            { "name": "Lylia's Curse", "quality": "Quest", "class": "Quest Charms", "type": "Lylia's Curse<br>" },
+            { "name": "Azurewrath", "quality": "SU", "class": "Crystal Swords", "type": "Crystal Sword" }
+          ]
+        }"#;
+
+        let entries = parse_index_response(body).unwrap();
+
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].name, "Lylia's Curse");
+        assert_eq!(entries[0].quality, "Quest");
+        assert_eq!(entries[0].class, "Quest Charms");
+        assert_eq!(entries[0].type_name, "Lylia's Curse<br>");
+        assert_eq!(entries[0].detail, None);
+    }
+
+    #[test]
+    fn searches_index_with_name_first_ranking() {
+        let entries = vec![
+            index_entry("Blade of Light", "SU", "Swords", "Sword"),
+            index_entry("Questing Beast", "SU", "Swords", "Sword"),
+            index_entry("Lylia's Curse", "Quest", "Quest Charms", "Charm"),
+            index_entry("Curse of the Zakarum", "SU", "Maces", "Mace"),
+            index_entry(
+                "Arcane Hunger",
+                "Effigy",
+                "Occult Effigies",
+                "Occult Effigy",
+            ),
+            index_entry("Sunstone", "Quest", "Charms", "Charm"),
+        ];
+
+        let result = search_index_entries("quest", &entries);
+
+        match result {
+            MxlItemSearchResult::Results {
+                entries, message, ..
+            } => {
+                assert_eq!(message, None);
+                assert_eq!(entries.len(), 3);
+                assert_eq!(entries[0].name, "Questing Beast");
+                assert_eq!(entries[1].name, "Lylia's Curse");
+                assert_eq!(entries[2].name, "Sunstone");
+            }
+            other => panic!("unexpected result: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn short_index_query_returns_hint() {
+        let entries = vec![index_entry(
+            "Lylia's Curse",
+            "Quest",
+            "Quest Charms",
+            "Charm",
+        )];
+
+        let result = search_index_entries("l", &entries);
+
+        assert_eq!(
+            result,
+            MxlItemSearchResult::Results {
+                query: "l".to_string(),
+                entries: Vec::new(),
+                message: Some(TYPEAHEAD_MIN_QUERY_MESSAGE.to_string()),
+            }
+        );
+    }
+
+    #[test]
+    fn index_search_returns_all_matches_without_overflow_message() {
+        let total_matches = 52;
+        let entries = (0..total_matches)
+            .map(|i| index_entry(&format!("Sacred Item {:03}", i), "SU", "Swords", "Sword"))
+            .collect::<Vec<_>>();
+
+        let result = search_index_entries("sacred", &entries);
+
+        match result {
+            MxlItemSearchResult::Results {
+                entries, message, ..
+            } => {
+                assert_eq!(entries.len(), total_matches);
+                assert_eq!(message, None);
             }
             other => panic!("unexpected result: {:?}", other),
         }
