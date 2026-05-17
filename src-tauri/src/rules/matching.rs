@@ -1,6 +1,6 @@
 //! Rule matching against a single scanned item.
 
-use super::{CompiledPattern, ItemQuality, ItemTier, Rule};
+use super::{CompiledPattern, EnrichmentNeeds, ItemQuality, ItemTier, PartialRuleMatch, Rule};
 use crate::notifier::ItemDropEvent;
 
 pub struct MatchContext<'a> {
@@ -39,21 +39,24 @@ impl<'a> MatchContext<'a> {
         if rule.ethereal && !self.item.is_ethereal {
             return false;
         }
+
         if let Some(ref pattern) = rule.name_pattern {
             let compiled = rule.compiled_name_pattern();
-            // OR across runtime name, items.txt base type, and category prefix
-            // (e.g. "Great Rune" for Rhal Rune). Rare runtime names are random
-            // affix combos, so they're skipped to avoid false positives.
-            let is_rare = self.item.quality.eq_ignore_ascii_case("Rare");
-            let name_hit = !is_rare && pattern_matches(pattern, compiled, &self.name_lower);
+            let is_runtime_rare_name =
+                self.item.name_is_runtime && self.item.quality.eq_ignore_ascii_case("Rare");
+            let name_hit = !is_runtime_rare_name
+                && !self.name_lower.is_empty()
+                && pattern_matches(pattern, compiled, &self.name_lower);
             let base_hit = !self.base_name_lower.is_empty()
                 && pattern_matches(pattern, compiled, &self.base_name_lower);
             let category_hit = !self.category_lower.is_empty()
                 && pattern_matches(pattern, compiled, &self.category_lower);
+
             if !(name_hit || base_hit || category_hit) {
                 return false;
             }
         }
+
         let compiled_stat_patterns = rule.compiled_stat_patterns();
         for (index, pattern) in rule.stat_patterns.iter().enumerate() {
             let compiled = compiled_stat_patterns.and_then(|patterns| patterns.get(index));
@@ -62,6 +65,52 @@ impl<'a> MatchContext<'a> {
             }
         }
         true
+    }
+
+    pub fn partial_matches(&self, rule: &Rule) -> PartialRuleMatch {
+        if !self.qualities_match(&rule.qualities) {
+            return PartialRuleMatch::NoMatch;
+        }
+        if !self.tiers_match(&rule.tiers) {
+            return PartialRuleMatch::NoMatch;
+        }
+        if !self.sockets_match(&rule.sockets) {
+            return PartialRuleMatch::NoMatch;
+        }
+        if rule.ethereal && !self.item.is_ethereal {
+            return PartialRuleMatch::NoMatch;
+        }
+
+        if let Some(ref pattern) = rule.name_pattern {
+            let compiled = rule.compiled_name_pattern();
+            let is_runtime_rare_name =
+                self.item.name_is_runtime && self.item.quality.eq_ignore_ascii_case("Rare");
+            let name_hit = !is_runtime_rare_name
+                && !self.name_lower.is_empty()
+                && pattern_matches(pattern, compiled, &self.name_lower);
+            let base_hit = !self.base_name_lower.is_empty()
+                && pattern_matches(pattern, compiled, &self.base_name_lower);
+            let category_hit = !self.category_lower.is_empty()
+                && pattern_matches(pattern, compiled, &self.category_lower);
+
+            if !(name_hit || base_hit || category_hit) {
+                return PartialRuleMatch::NoMatch;
+            }
+        }
+
+        if !rule.stat_patterns.is_empty() && !self.item.runtime_stats_loaded {
+            return PartialRuleMatch::Needs(EnrichmentNeeds::stats());
+        }
+
+        let compiled_stat_patterns = rule.compiled_stat_patterns();
+        for (index, pattern) in rule.stat_patterns.iter().enumerate() {
+            let compiled = compiled_stat_patterns.and_then(|patterns| patterns.get(index));
+            if !pattern_matches(pattern, compiled, &self.stats_lower) {
+                return PartialRuleMatch::NoMatch;
+            }
+        }
+
+        PartialRuleMatch::Match
     }
 
     /// Empty for patterns that only match across line boundaries (e.g.
@@ -150,6 +199,8 @@ mod tests {
             base_name: String::new(),
             category: None,
             stats: stats.to_string(),
+            name_is_runtime: false,
+            runtime_stats_loaded: !stats.is_empty(),
             is_ethereal: eth,
             is_identified: true,
             p_unit_data: 0,
@@ -171,6 +222,8 @@ mod tests {
             base_name: base.to_string(),
             category: None,
             stats: stats.to_string(),
+            name_is_runtime: false,
+            runtime_stats_loaded: !stats.is_empty(),
             is_ethereal: false,
             is_identified: true,
             p_unit_data: 0,
@@ -181,6 +234,95 @@ mod tests {
             sockets: 0,
             filter: None,
         }
+    }
+
+    fn cheap_item(name: &str, base: &str, quality: &str, stats: &str) -> ItemDropEvent {
+        ItemDropEvent {
+            unit_id: 1,
+            class: 0,
+            quality: quality.to_string(),
+            name: name.to_string(),
+            base_name: base.to_string(),
+            category: None,
+            stats: stats.to_string(),
+            name_is_runtime: false,
+            runtime_stats_loaded: !stats.is_empty(),
+            is_ethereal: true,
+            is_identified: true,
+            p_unit_data: 0,
+            seed: 0,
+            history_pushed: false,
+            tier: Some(ItemTier::Sacred),
+            unique_kind: None,
+            sockets: 0,
+            filter: None,
+        }
+    }
+
+    #[test]
+    fn partial_match_static_unique_name_needs_no_get_item_name() {
+        let item = cheap_item("Shamanka", "Long Staff (Sacred)", "Unique", "");
+        let ctx = MatchContext::new(&item);
+        let rule = Rule {
+            name_pattern: Some("Shamanka".into()),
+            qualities: vec![ItemQuality::Unique],
+            ..Rule::default()
+        };
+        assert!(matches!(
+            ctx.partial_matches(&rule),
+            PartialRuleMatch::Match
+        ));
+    }
+
+    #[test]
+    fn partial_match_base_name_rule_needs_no_get_item_name() {
+        let item = cheap_item("Large Axe (Sacred)", "Large Axe (Sacred)", "Superior", "");
+        let ctx = MatchContext::new(&item);
+        let rule = Rule {
+            name_pattern: Some("Large Axe".into()),
+            qualities: vec![ItemQuality::Superior],
+            tiers: vec![ItemTier::Sacred],
+            ethereal: true,
+            ..Rule::default()
+        };
+        assert!(matches!(
+            ctx.partial_matches(&rule),
+            PartialRuleMatch::Match
+        ));
+    }
+
+    #[test]
+    fn partial_match_stat_pattern_requests_stats_after_static_name_match() {
+        let item = cheap_item("Amulet", "Amulet", "Rare", "");
+        let ctx = MatchContext::new(&item);
+        let rule = Rule {
+            name_pattern: Some("Amulet$".into()),
+            qualities: vec![ItemQuality::Rare],
+            stat_patterns: vec!["[3-9] to All Skills".into()],
+            ..Rule::default()
+        };
+        assert!(matches!(
+            ctx.partial_matches(&rule),
+            PartialRuleMatch::Needs(EnrichmentNeeds {
+                runtime_stats: true
+            })
+        ));
+    }
+
+    #[test]
+    fn partial_match_stat_pattern_does_not_request_stats_when_base_misses() {
+        let item = cheap_item("Large Axe (Sacred)", "Large Axe (Sacred)", "Rare", "");
+        let ctx = MatchContext::new(&item);
+        let rule = Rule {
+            name_pattern: Some("Amulet$".into()),
+            qualities: vec![ItemQuality::Rare],
+            stat_patterns: vec!["[3-9] to All Skills".into()],
+            ..Rule::default()
+        };
+        assert!(matches!(
+            ctx.partial_matches(&rule),
+            PartialRuleMatch::NoMatch
+        ));
     }
 
     #[test]
@@ -436,7 +578,8 @@ mod tests {
 
     #[test]
     fn name_pattern_does_not_match_runtime_name_for_rare() {
-        let it = item_with_base("Rune Turn", "Ring", "Rare", "");
+        let mut it = item_with_base("Rune Turn", "Ring", "Rare", "");
+        it.name_is_runtime = true;
         let ctx = MatchContext::new(&it);
         let r = Rule {
             name_pattern: Some("Rune Turn".into()),

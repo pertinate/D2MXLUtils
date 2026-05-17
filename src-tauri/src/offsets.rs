@@ -254,7 +254,7 @@ pub mod item_data {
     /// fresh `unit_id`.
     pub const SEED: usize = 0x14; // dword
     pub const FLAGS: usize = 0x18; // dword (item flags) - offset 0 + 4 + 5*4 = 0x18
-    pub const FILE_INDEX: usize = 0x2C; // dword - offset 0x18 + 4 + 3*4 + 4 = 0x2C
+    pub const FILE_INDEX: usize = 0x28; // dword (dwFileIndex; 0x2C is item level)
     pub const BODY_LOCATION: usize = 0x44; // byte (equipped body slot)
     pub const ITEM_LOCATION: usize = 0x45; // byte (inventory/equipment location enum)
     pub const OWNER_INVENTORY: usize = 0x5C; // dword (owning D2InventoryStrc*)

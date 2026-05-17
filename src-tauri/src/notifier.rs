@@ -28,7 +28,7 @@ use crate::offsets::{
 #[cfg(target_os = "windows")]
 use crate::process::D2Context;
 #[cfg(target_os = "windows")]
-use crate::rules::{FilterConfig, MatchContext, Visibility};
+use crate::rules::{FilterConfig, MatchContext, PartialFilterDecision, Visibility};
 use crate::rules::{ItemTier, Notification};
 #[cfg(target_os = "windows")]
 use crate::scanner_state::{BfsItemCandidate, CachedFilterDecision, SharedScannerState};
@@ -60,6 +60,14 @@ pub struct ItemDropEvent {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub category: Option<String>,
     pub stats: String,
+    /// True only when `name` came from D2Client.GetItemName. Ground-item
+    /// scanning should normally keep this false and use table-derived names.
+    #[serde(default, skip)]
+    pub name_is_runtime: bool,
+    /// True when `stats` came from D2Client.GetItemStats or a table fallback.
+    /// False means stat-pattern rules cannot be fully decided yet.
+    #[serde(default, skip)]
+    pub runtime_stats_loaded: bool,
     pub is_ethereal: bool,
     pub is_identified: bool,
     pub p_unit_data: u32,
@@ -130,6 +138,7 @@ pub struct DropScanner {
     /// Goblins detected in the latest `tick_items` pass; drained by main
     /// loop into `goblin-detected` events. Same pattern as `last_pickup_updates`.
     last_goblin_events: Vec<GoblinDetectedEvent>,
+    debug_get_item_stats_calls: u64,
 }
 
 #[cfg(target_os = "windows")]
@@ -297,6 +306,7 @@ impl DropScanner {
             pending_visibility_ops: PendingVisibilityMaskOps::new(),
             seen_goblins: HashSet::new(),
             last_goblin_events: Vec::new(),
+            debug_get_item_stats_calls: 0,
         })
     }
 
@@ -497,10 +507,10 @@ impl DropScanner {
     }
 
     fn process_scanned_item(&mut self, scanned: ScannedItem, events: &mut Vec<ItemDropEvent>) {
-        let event = self.to_event(scanned);
+        let p_unit = scanned.p_unit;
+        let mut event = self.to_event(scanned);
         let unit_id = event.unit_id;
 
-        let mut event = event;
         let mut should_emit = true;
         let mut hook_bits_may_exist = false;
         let mut cached_filter_decision = None;
@@ -515,14 +525,31 @@ impl DropScanner {
         };
         if let Some((filter_arc, filter_generation)) = filter_snapshot {
             if let Ok(filter) = filter_arc.read() {
-                let ctx = MatchContext::new(&event);
-                let decision = filter.decide(&ctx);
+                let decision = loop {
+                    let ctx = MatchContext::new(&event);
+                    match filter.decide_partial(&ctx) {
+                        PartialFilterDecision::Ready(decision) => break decision,
+                        PartialFilterDecision::Needs(needs) => {
+                            let before_stats = event.runtime_stats_loaded;
+
+                            if needs.runtime_stats {
+                                self.enrich_event_stats(&mut event, p_unit);
+                            }
+
+                            if before_stats == event.runtime_stats_loaded {
+                                let ctx = MatchContext::new(&event);
+                                break filter.decide(&ctx);
+                            }
+                        }
+                    }
+                };
                 cached_filter_decision = Some(CachedFilterDecision::from_decision(
                     filter_generation,
                     &decision,
                 ));
 
                 if self.verbose_filter_logging {
+                    let ctx = MatchContext::new(&event);
                     let winner = filter.rules.iter().rev().find(|r| ctx.matches(r));
                     let reason = match winner {
                         Some(r) => {
@@ -553,6 +580,15 @@ impl DropScanner {
                         decision.notification.is_some(),
                         reason
                     ));
+                }
+
+                if decision
+                    .notification
+                    .as_ref()
+                    .map(|n| n.display_stats)
+                    .unwrap_or(false)
+                {
+                    self.enrich_event_stats(&mut event, p_unit);
                 }
 
                 if self.loot_hook.is_injected() {
@@ -980,6 +1016,16 @@ impl DropScanner {
             }
         }
 
+        if self.debug_get_item_stats_calls > 0 {
+            if self.verbose_filter_logging {
+                log_info(&format!(
+                    "[Filter] runtime enrichment calls: GetItemStats={}",
+                    self.debug_get_item_stats_calls
+                ));
+            }
+            self.debug_get_item_stats_calls = 0;
+        }
+
         events
     }
 
@@ -1007,7 +1053,7 @@ impl DropScanner {
             .read_memory(unit.p_unit_data as usize)
             .ok()?;
 
-        // Create scanned item and try to enrich it using injected game functions.
+        // Create scanned item and keep the existing socket-count enrichment only.
         let mut scanned = ScannedItem::from_unit(unit, &item_data, p_unit);
 
         {
@@ -1015,37 +1061,6 @@ impl DropScanner {
             if item_data.is_socketed() {
                 if let Ok(n) = injector.get_unit_stat(&self.state.ctx.process, p_unit, 0xC2) {
                     scanned.sockets = n.min(6) as u8;
-                }
-            }
-
-            // Try to resolve item name via injected GetItemName.
-            if let Ok(raw_name) = injector.get_item_name(&self.state.ctx.process, p_unit) {
-                let cleaned = strip_color_codes(&raw_name);
-
-                // Use the last non-empty line as the display name (matches D2Stats behavior).
-                if let Some(last_line) = cleaned.lines().rev().find(|line| !line.trim().is_empty())
-                {
-                    scanned.name = Some(last_line.to_string());
-                } else if !cleaned.trim().is_empty() {
-                    scanned.name = Some(cleaned.trim().to_string());
-                }
-            }
-
-            // Try to resolve item stats text via injected GetItemStats.
-            if let Ok(raw_stats) = injector.get_item_stats(&self.state.ctx.process, p_unit) {
-                let cleaned = strip_color_codes(&raw_stats);
-                if !cleaned.trim().is_empty() {
-                    let reversed: Vec<&str> = cleaned.lines().rev().collect();
-                    scanned.stats = Some(reversed.join("\n"));
-                }
-            }
-
-            // Fallback: for items whose stats come from data tables rather
-            // than the unit's stat list (e.g. Cycles), read the bonus
-            // description from the items.txt string-table ID at +0xB6.
-            if scanned.stats.is_none() {
-                if let Some(text) = self.read_item_desc_from_txt(&injector, scanned.class) {
-                    scanned.stats = Some(text);
                 }
             }
         }
@@ -1056,13 +1071,38 @@ impl DropScanner {
         Some(scanned)
     }
 
+    fn enrich_event_stats(&mut self, event: &mut ItemDropEvent, p_unit: u32) {
+        if event.runtime_stats_loaded {
+            return;
+        }
+
+        self.debug_get_item_stats_calls += 1;
+
+        let injector = self.state.injector.lock().unwrap();
+        if let Ok(raw_stats) = injector.get_item_stats(&self.state.ctx.process, p_unit) {
+            let cleaned = strip_color_codes(&raw_stats);
+            if !cleaned.trim().is_empty() {
+                let reversed: Vec<&str> = cleaned.lines().rev().collect();
+                event.stats = Self::format_event_stats(event.sockets, reversed.join("\n"));
+                event.runtime_stats_loaded = true;
+            }
+        }
+
+        if !event.runtime_stats_loaded {
+            if let Some(text) = self.read_item_desc_from_txt(&injector, event.class) {
+                event.stats = Self::format_event_stats(event.sockets, text);
+                event.runtime_stats_loaded = true;
+            }
+        }
+    }
+
     /// Convert a scanned item into an event payload for the frontend.
     fn to_event(&self, scanned: ScannedItem) -> ItemDropEvent {
         let class = scanned.class;
         let quality = scanned.quality_name().to_string();
-        let mut name = scanned
-            .name
-            .unwrap_or_else(|| format!("Item #{}", scanned.class));
+        let base_name = self.class_base_name(class);
+        let mut name = self.static_display_name(&scanned, &base_name);
+        let runtime_stats_loaded = scanned.stats.is_some();
         let unique_kind = if scanned.quality == item_quality::UNIQUE {
             self.unique_kind(scanned.file_index, class)
         } else {
@@ -1073,15 +1113,7 @@ impl DropScanner {
             name.push_str(kind.label());
         }
         let raw_stats = scanned.stats.unwrap_or_default();
-        let stats = if scanned.sockets > 0 {
-            if raw_stats.is_empty() {
-                format!("Socketed ({})", scanned.sockets)
-            } else {
-                format!("Socketed ({})\n{}", scanned.sockets, raw_stats)
-            }
-        } else {
-            raw_stats
-        };
+        let stats = Self::format_event_stats(scanned.sockets, raw_stats);
         // Read dwSeed at item_data + 0x14 — stable per-item across area
         // unload/reload, used by loot-history dedup.
         let seed = if scanned.p_unit_data != 0 {
@@ -1097,10 +1129,12 @@ impl DropScanner {
             unit_id: scanned.unit_id,
             class,
             quality,
-            base_name: self.class_base_name(class),
+            base_name,
             category: self.class_category(class),
             name,
             stats,
+            name_is_runtime: false,
+            runtime_stats_loaded,
             is_ethereal: scanned.is_ethereal,
             is_identified: scanned.is_identified,
             p_unit_data: scanned.p_unit_data,
@@ -1113,6 +1147,18 @@ impl DropScanner {
         }
     }
 
+    fn format_event_stats(sockets: u8, raw_stats: String) -> String {
+        if sockets > 0 {
+            if raw_stats.is_empty() {
+                format!("Socketed ({})", sockets)
+            } else {
+                format!("Socketed ({})\n{}", sockets, raw_stats)
+            }
+        } else {
+            raw_stats
+        }
+    }
+
     fn unique_kind(&self, file_index: u32, class: u32) -> Option<UniqueKind> {
         let from_wlvl = self
             .unique_cache
@@ -1120,6 +1166,40 @@ impl DropScanner {
             .and_then(|cache| cache.get(file_index as usize))
             .and_then(|info| info.kind);
         classify_unique_kind(from_wlvl, self.class_tier(class))
+    }
+
+    fn unique_display_name(&self, file_index: u32) -> Option<String> {
+        self.unique_cache
+            .as_ref()
+            .and_then(|cache| cache.get(file_index as usize))
+            .map(|info| info.display_name.trim())
+            .filter(|name| !name.is_empty())
+            .map(str::to_string)
+    }
+
+    fn set_display_name(&self, file_index: u32) -> Option<String> {
+        self.set_cache
+            .as_ref()
+            .and_then(|cache| cache.get(file_index as usize))
+            .map(|name| name.trim())
+            .filter(|name| !name.is_empty())
+            .map(str::to_string)
+    }
+
+    fn static_display_name(&self, scanned: &ScannedItem, base_name: &str) -> String {
+        match scanned.quality {
+            item_quality::UNIQUE => self.unique_display_name(scanned.file_index),
+            item_quality::SET => self.set_display_name(scanned.file_index),
+            _ => None,
+        }
+        .or_else(|| {
+            if base_name.is_empty() {
+                None
+            } else {
+                Some(base_name.to_string())
+            }
+        })
+        .unwrap_or_else(|| format!("Item #{}", scanned.class))
     }
 
     fn class_tier(&self, class: u32) -> Option<ItemTier> {
@@ -1421,22 +1501,20 @@ impl DropScanner {
         let mut cache = Vec::with_capacity(count);
         for i in 0..count {
             let record = base_ptr + i * set_items_txt::RECORD_SIZE;
-            let name_id = match self
+            let name = self
                 .state
                 .ctx
                 .process
                 .read_memory::<u16>(record + set_items_txt::NAME_ID)
-            {
-                Ok(v) => v,
-                Err(_) => continue,
-            };
-            let name = match injector.get_string(&self.state.ctx.process, name_id, 200) {
-                Ok(s) => strip_color_codes(&s).trim().to_string(),
-                Err(_) => continue,
-            };
-            if !name.is_empty() {
-                cache.push(name);
-            }
+                .ok()
+                .and_then(|name_id| {
+                    injector
+                        .get_string(&self.state.ctx.process, name_id, 200)
+                        .ok()
+                })
+                .map(|s| strip_color_codes(&s).trim().to_string())
+                .unwrap_or_default();
+            cache.push(name);
         }
 
         Ok(cache)
@@ -1527,11 +1605,7 @@ impl DropScanner {
     /// Items like Median XL Cycles store their property description as a
     /// string-table ID in items.txt at record offset +0xB6 (u16).  The
     /// string contains the full tooltip in bottom-to-top line order.
-    fn read_item_desc_from_txt(
-        &self,
-        injector: &crate::injection::D2Injector,
-        class: u32,
-    ) -> Option<String> {
+    fn read_item_desc_from_txt(&self, injector: &D2Injector, class: u32) -> Option<String> {
         let count: u32 = self
             .state
             .ctx

@@ -322,6 +322,36 @@ pub struct FilterDecision {
     pub place_on_map: bool,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct EnrichmentNeeds {
+    pub runtime_stats: bool,
+}
+
+impl EnrichmentNeeds {
+    pub fn stats() -> Self {
+        Self {
+            runtime_stats: true,
+        }
+    }
+
+    pub fn is_empty(self) -> bool {
+        !self.runtime_stats
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PartialRuleMatch {
+    Match,
+    NoMatch,
+    Needs(EnrichmentNeeds),
+}
+
+#[derive(Debug, Clone)]
+pub enum PartialFilterDecision {
+    Ready(FilterDecision),
+    Needs(EnrichmentNeeds),
+}
+
 // =====================================================================
 // FilterConfig
 // =====================================================================
@@ -360,41 +390,63 @@ impl FilterConfig {
         self.rules.iter().any(|rule| rule.map)
     }
 
+    fn decision_for_rule(&self, rule: &Rule, ctx: &MatchContext) -> FilterDecision {
+        FilterDecision {
+            visibility: resolve_visibility(rule.visibility, self.hide_all),
+            notification: if rule.notify {
+                let matched_stat_lines = if rule.stat_patterns.is_empty() {
+                    Vec::new()
+                } else {
+                    ctx.matching_stat_lines_for_rule(rule)
+                };
+                Some(Notification {
+                    color: rule.color,
+                    sound: rule.sound.filter(|&s| s != 0),
+                    display_stats: rule.display_stats || !rule.stat_patterns.is_empty(),
+                    matched_stat_lines,
+                })
+            } else {
+                None
+            },
+            place_on_map: rule.map,
+        }
+    }
+
+    fn default_decision(&self) -> FilterDecision {
+        FilterDecision {
+            visibility: if self.hide_all {
+                Visibility::Hide
+            } else {
+                Visibility::Default
+            },
+            notification: None,
+            place_on_map: false,
+        }
+    }
+
     /// Decide what to do with an item: last-match wins, per spec.
     pub fn decide(&self, ctx: &MatchContext) -> FilterDecision {
         let winner = self.rules.iter().rev().find(|r| ctx.matches(r));
         match winner {
-            None => FilterDecision {
-                visibility: if self.hide_all {
-                    Visibility::Hide
-                } else {
-                    Visibility::Default
-                },
-                notification: None,
-                place_on_map: false,
-            },
-            Some(rule) => FilterDecision {
-                visibility: resolve_visibility(rule.visibility, self.hide_all),
-                notification: if rule.notify {
-                    let matched_stat_lines = if rule.stat_patterns.is_empty() {
-                        Vec::new()
-                    } else {
-                        ctx.matching_stat_lines_for_rule(rule)
-                    };
-                    // Drop the silence marker (`sound_none` → 0) so consumers
-                    // only see real slot indices (>= 1).
-                    Some(Notification {
-                        color: rule.color,
-                        sound: rule.sound.filter(|&s| s != 0),
-                        display_stats: rule.display_stats || !rule.stat_patterns.is_empty(),
-                        matched_stat_lines,
-                    })
-                } else {
-                    None
-                },
-                place_on_map: rule.map,
-            },
+            None => self.default_decision(),
+            Some(rule) => self.decision_for_rule(rule, ctx),
         }
+    }
+
+    pub fn decide_partial(&self, ctx: &MatchContext) -> PartialFilterDecision {
+        for rule in self.rules.iter().rev() {
+            match ctx.partial_matches(rule) {
+                PartialRuleMatch::Match => {
+                    return PartialFilterDecision::Ready(self.decision_for_rule(rule, ctx));
+                }
+                PartialRuleMatch::NoMatch => {}
+                PartialRuleMatch::Needs(needs) => {
+                    return PartialFilterDecision::Needs(needs);
+                }
+            }
+        }
+
+        PartialFilterDecision::Ready(self.default_decision())
     }
 }
 
@@ -426,6 +478,8 @@ mod tests {
             base_name: String::new(),
             category: None,
             stats: String::new(),
+            name_is_runtime: false,
+            runtime_stats_loaded: false,
             is_ethereal: eth,
             is_identified: true,
             p_unit_data: 0,
@@ -712,6 +766,97 @@ mod tests {
         ring.stats = "+3 to All Skills\n+15% Faster Cast Rate".to_string();
         let ctx = MatchContext::new(&ring);
         assert!(config.decide(&ctx).notification.is_none());
+    }
+
+    #[test]
+    fn partial_decide_later_cheap_rule_wins_without_stats() {
+        let mut item = item("Amulet", ItemQuality::Rare, false);
+        item.base_name = "Amulet".into();
+        item.name_is_runtime = false;
+        item.runtime_stats_loaded = false;
+
+        let cfg = FilterConfig {
+            rules: vec![
+                Rule {
+                    name_pattern: Some("Amulet$".into()),
+                    qualities: vec![ItemQuality::Rare],
+                    stat_patterns: vec!["[3-9] to All Skills".into()],
+                    notify: true,
+                    ..Rule::default()
+                },
+                Rule {
+                    qualities: vec![ItemQuality::Rare],
+                    visibility: Visibility::Hide,
+                    ..Rule::default()
+                },
+            ],
+            ..FilterConfig::default()
+        };
+
+        let ctx = MatchContext::new(&item);
+        match cfg.decide_partial(&ctx) {
+            PartialFilterDecision::Ready(decision) => {
+                assert_eq!(decision.visibility, Visibility::Hide);
+            }
+            PartialFilterDecision::Needs(_) => panic!("later cheap hide rule should avoid stats"),
+        }
+    }
+
+    #[test]
+    fn partial_decide_later_stat_rule_requests_stats_before_lower_priority_rule() {
+        let mut item = item("Amulet", ItemQuality::Rare, false);
+        item.base_name = "Amulet".into();
+        item.name_is_runtime = false;
+        item.runtime_stats_loaded = false;
+
+        let cfg = FilterConfig {
+            rules: vec![
+                Rule {
+                    qualities: vec![ItemQuality::Rare],
+                    notify: true,
+                    ..Rule::default()
+                },
+                Rule {
+                    name_pattern: Some("Amulet$".into()),
+                    qualities: vec![ItemQuality::Rare],
+                    stat_patterns: vec!["[3-9] to All Skills".into()],
+                    notify: true,
+                    ..Rule::default()
+                },
+            ],
+            ..FilterConfig::default()
+        };
+
+        let ctx = MatchContext::new(&item);
+        match cfg.decide_partial(&ctx) {
+            PartialFilterDecision::Needs(needs) => assert!(needs.runtime_stats),
+            PartialFilterDecision::Ready(_) => {
+                panic!("expected stats before lower-priority rare notify")
+            }
+        }
+    }
+
+    #[test]
+    fn full_decide_matches_stats_text_without_runtime_stats_flag() {
+        let mut item = item("Amulet", ItemQuality::Rare, false);
+        item.base_name = "Amulet".into();
+        item.name_is_runtime = false;
+        item.stats = "+3 to All Skills".into();
+        item.runtime_stats_loaded = false;
+
+        let cfg = FilterConfig {
+            rules: vec![Rule {
+                name_pattern: Some("Amulet$".into()),
+                qualities: vec![ItemQuality::Rare],
+                stat_patterns: vec!["[3-9] to All Skills".into()],
+                notify: true,
+                ..Rule::default()
+            }],
+            ..FilterConfig::default()
+        };
+
+        let ctx = MatchContext::new(&item);
+        assert!(cfg.decide(&ctx).notification.is_some());
     }
 
     #[test]

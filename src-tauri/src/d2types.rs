@@ -58,7 +58,7 @@ impl UnitAny {
 ///
 /// AutoIt definition:
 /// ```
-/// DllStructCreate("dword iQuality;dword pad1[5];dword iFlags;dword pad2[3];dword dwFileIndex;dword pad2[7];byte iEarLevel;")
+/// DllStructCreate("dword iQuality;dword pad1[5];dword iFlags;dword pad2[3];dword dwFileIndex;dword pad3[7];byte iEarLevel;")
 /// ```
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Default)]
@@ -67,7 +67,7 @@ pub struct ItemData {
     pub _pad1: [u32; 5], // 0x04-0x14 padding
     pub flags: u32,      // 0x18: Item flags (identified, ethereal, etc.)
     pub _pad2: [u32; 3], // 0x1C-0x24 padding
-    pub file_index: u32, // 0x28: Index into items.txt (actually at 0x2C based on calc)
+    pub file_index: u32, // 0x28: Index into UniqueItems.txt/SetItems.txt
     pub _pad3: [u32; 7], // 0x2C-0x44 padding
     pub ear_level: u8,   // 0x48: For ears - level of killed player
 }
@@ -138,9 +138,9 @@ pub struct ScannedItem {
     pub is_ethereal: bool,
     /// Whether item is identified
     pub is_identified: bool,
-    /// Item name (retrieved via injection)
+    /// Optional runtime item name.
     pub name: Option<String>,
-    /// Item stats text (retrieved via injection)
+    /// Optional runtime or fallback stats text.
     pub stats: Option<String>,
     /// File index from ItemData
     pub file_index: u32,
@@ -211,4 +211,19 @@ pub enum PrintColor {
     Yellow = 9,
     DarkGreen = 10,
     Purple = 11,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ItemData;
+    use crate::offsets::item_data;
+    use std::mem::offset_of;
+
+    #[test]
+    fn item_data_offsets_match_known_memory_layout() {
+        assert_eq!(offset_of!(ItemData, flags), item_data::FLAGS);
+        assert_eq!(item_data::FILE_INDEX, 0x28);
+        assert_eq!(offset_of!(ItemData, file_index), item_data::FILE_INDEX);
+        assert_eq!(offset_of!(ItemData, ear_level), 0x48);
+    }
 }
