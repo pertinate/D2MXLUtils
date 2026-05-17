@@ -1,5 +1,26 @@
 # Changelog
 
+## v1.26.0 — 2026-05-17
+
+### Bug Fixes
+
+- Fix(notifier): use lazy static item enrichment (0772ab4)
+
+### Features
+
+- Feat(item-search): add indexed typeahead search (59e4cbb)
+- Feat(overlay): add draggable overlay windows (61c8e53)
+- Feat(overlay): polish loot history panel UX (e37e438)
+- Feat(item-search): add in-game MXL item lookup (ae50e7c)
+
+### Miscellaneous
+
+- Chore: ignore worktree directories (4f468cc)
+
+### Other
+
+- 1.26.0 (bd34525)
+
 ## v1.25.0 — 2026-05-13
 
 ### Bug Fixes
