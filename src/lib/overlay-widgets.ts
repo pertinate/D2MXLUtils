@@ -1,19 +1,27 @@
 /**
- * Static registry of every repositionable overlay widget.
+ * Static registry of overlay positions and edit-mode repositionable widgets.
  *
- * Adding a new widget:
- *   1. Add an entry to OVERLAY_WIDGETS below.
+ * Adding a new persisted overlay position:
+ *   1. Add a default to OVERLAY_POSITION_DEFAULTS below.
  *   2. In the widget's component, read its position via
  *      `widgetPosition(id)` from `src/stores/widget-positions.svelte.ts`.
  *   3. Style with `top: {y}%; left: {x}%;` (percent of overlay size).
+ *   4. Add to OVERLAY_WIDGETS only if it should appear in overlay edit mode.
  */
+
+export const OVERLAY_POSITION_DEFAULTS = {
+  notifications: { x: 1, y: 1 },
+  'dps-meter': { x: 1, y: 1 },
+  'loot-history': { x: 50, y: 25 },
+  'item-search': { x: 30, y: 16 },
+} as const;
+
+export type OverlayPositionId = keyof typeof OVERLAY_POSITION_DEFAULTS;
 
 export interface OverlayWidgetSpec {
   /** Settings key — NEVER change after release. */
-  id: string;
+  id: OverlayPositionId;
   label: string;
-  /** Percent. Used when the widget has no saved position yet. */
-  defaultPosition: { x: number; y: number };
   /** Pixels. Sizes the ghost and clamps drag. */
   ghostSize: { width: number; height: number };
 }
@@ -22,20 +30,12 @@ export const OVERLAY_WIDGETS = [
   {
     id: 'notifications',
     label: 'Drop notifications',
-    defaultPosition: { x: 1, y: 1 },
     ghostSize: { width: 300, height: 80 },
   },
   {
     id: 'dps-meter',
     label: 'DPS meter',
-    defaultPosition: { x: 1, y: 1 },
     ghostSize: { width: 130, height: 110 },
-  },
-  {
-    id: 'loot-history',
-    label: 'Loot history',
-    defaultPosition: { x: 50, y: 25 },
-    ghostSize: { width: 600, height: 400 },
   },
 ] as const satisfies readonly OverlayWidgetSpec[];
 

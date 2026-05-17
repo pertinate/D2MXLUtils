@@ -3,6 +3,7 @@
   import { listen } from '@tauri-apps/api/event';
   import { onMount, tick } from 'svelte';
   import { clickOutside } from '../actions/click-outside';
+  import { dragWindow, type WindowPosition } from '../actions/drag-window';
   import {
     itemQualityColor,
     type MxlItemDetail,
@@ -10,6 +11,7 @@
     type MxlItemSearchResult,
     type OpenItemSearchPayload,
   } from '../lib/mxl-item-search';
+  import { setWidgetPosition, widgetPosition } from '../stores/widget-positions.svelte';
 
   type TooltipLine = {
     text: string;
@@ -26,11 +28,13 @@
   let loadingName = $state<string | null>(null);
   let tooltip = $state<MxlItemDetail | null>(null);
   let inputEl: HTMLInputElement | null = $state(null);
+  let layoutEl: HTMLDivElement | null = $state(null);
   let searchRequestId = 0;
   let detailRequestId = 0;
   let autoOpenSingleDetailedResult = false;
 
   const active = $derived(open || tooltip !== null);
+  let pos = $derived(widgetPosition('item-search'));
 
   $effect(() => {
     onActiveChange(active);
@@ -65,6 +69,10 @@
     loadingName = null;
     autoOpenSingleDetailedResult = false;
     message = '';
+  }
+
+  function moveWindow(position: WindowPosition) {
+    setWidgetPosition('item-search', position.x, position.y);
   }
 
   async function runSearch(query = inputValue) {
@@ -247,10 +255,19 @@
 </script>
 
 {#if open || tooltip}
-  <div class="item-search-layout" use:clickOutside={closeAll}>
+  <div
+    class="item-search-layout"
+    bind:this={layoutEl}
+    use:clickOutside={closeAll}
+    style:top="{pos.y}%"
+    style:left="{pos.x}%"
+  >
     {#if open}
       <section class="item-search" role="dialog" aria-label="MXL item search">
-        <header class="search-header">
+        <header
+          class="search-header"
+          use:dragWindow={{ target: () => layoutEl, onMove: moveWindow }}
+        >
           <div>
             <h2>Item Search</h2>
             <p>Median XL database</p>
@@ -340,8 +357,6 @@
 <style>
   .item-search-layout {
     position: fixed;
-    top: 16vh;
-    left: calc(50% - 366px);
     width: max-content;
     max-width: calc(100vw - 16px);
     display: flex;
@@ -371,6 +386,9 @@
     justify-content: space-between;
     padding: 10px 12px;
     border-bottom: 1px solid rgba(199, 179, 119, 0.28);
+    cursor: grab;
+    user-select: none;
+    touch-action: none;
   }
 
   h2,

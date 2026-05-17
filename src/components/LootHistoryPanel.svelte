@@ -1,13 +1,15 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { clickOutside } from '../actions/click-outside';
+  import { dragWindow, type WindowPosition } from '../actions/drag-window';
   import { lootHistoryStore, type LootHistoryEntry } from '../stores';
-  import { widgetPosition } from '../stores/widget-positions.svelte';
+  import { setWidgetPosition, widgetPosition } from '../stores/widget-positions.svelte';
 
   let { onClose } = $props<{ onClose: () => void }>();
 
   let pos = $derived(widgetPosition('loot-history'));
 
+  let panelEl: HTMLDivElement | null = $state(null);
   let scrollContainer: HTMLDivElement | null = $state(null);
   let stickToBottom = $state(true);
 
@@ -79,6 +81,10 @@
     stickToBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 50;
   }
 
+  function moveWindow(position: WindowPosition) {
+    setWidgetPosition('loot-history', position.x, position.y);
+  }
+
   // Auto-scroll to bottom only when the user is already near the bottom.
   $effect(() => {
     void lootHistoryStore.entries.length;
@@ -98,13 +104,14 @@
 
 <div
   class="loot-history-panel"
+  bind:this={panelEl}
   use:clickOutside={onClose}
   role="dialog"
   aria-label="Loot history"
   style:top="{pos.y}%"
   style:left="{pos.x}%"
 >
-  <header>
+  <header use:dragWindow={{ target: () => panelEl, onMove: moveWindow }}>
     <h2>Loot History</h2>
     <div class="header-actions">
       <button
@@ -155,6 +162,9 @@
     justify-content: space-between;
     padding: 10px 12px;
     border-bottom: 1px solid rgba(199, 179, 119, 0.28);
+    cursor: grab;
+    user-select: none;
+    touch-action: none;
   }
 
   h2 {

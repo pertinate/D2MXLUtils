@@ -83,7 +83,7 @@ export interface AppSettings {
   /** 1-based slot index played when a goblin appears nearby. */
   goblinAlertSlot: number | null;
   dpsMeter: DpsMeterSettings;
-  /** Centralized positions for repositionable overlay widgets, keyed by id.
+  /** Centralized positions for overlay widgets/windows, keyed by id.
    *  See `src/lib/overlay-widgets.ts`. Percent of overlay size. */
   widgetPositions: Record<string, WidgetPosition>;
 }
