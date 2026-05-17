@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { clickOutside } from '../actions/click-outside';
   import { lootHistoryStore, type LootHistoryEntry } from '../stores';
   import { widgetPosition } from '../stores/widget-positions.svelte';
 
@@ -97,6 +98,7 @@
 
 <div
   class="loot-history-panel"
+  use:clickOutside={onClose}
   role="dialog"
   aria-label="Loot history"
   style:top="{pos.y}%"
@@ -132,99 +134,131 @@
   .loot-history-panel {
     position: fixed;
     /* top/left supplied inline via style:top / style:left */
-    max-width: min(700px, 60vw);
-    width: 100%;
-    max-height: 70vh;
+    width: min(560px, calc(100vw - 32px));
+    max-height: min(520px, 70vh);
     display: flex;
     flex-direction: column;
-    background: rgba(0, 0, 0, 0.85);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: var(--radius-md, 8px);
-    color: #f0f0f0;
+    background: linear-gradient(180deg, rgba(12, 10, 8, 0.96), rgba(0, 0, 0, 0.92));
+    border: 1px solid rgba(199, 179, 119, 0.5);
+    box-shadow:
+      0 12px 40px rgba(0, 0, 0, 0.75),
+      inset 0 0 18px rgba(199, 179, 119, 0.08);
+    color: #f3f0df;
     pointer-events: auto;
-    font-family: var(--font-mono, monospace);
+    font-family: var(--font-mono, Consolas, monospace);
     font-size: 13px;
   }
+
   header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 8px 12px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    padding: 10px 12px;
+    border-bottom: 1px solid rgba(199, 179, 119, 0.28);
   }
+
   h2 {
     margin: 0;
-    font-size: 14px;
-    font-weight: 600;
+    font-size: 15px;
+    font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.5px;
+    letter-spacing: 0.08em;
   }
+
   .header-actions {
     display: flex;
-    gap: 4px;
+    gap: 6px;
     align-items: center;
   }
+
   .clear-btn {
-    background: transparent;
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    color: inherit;
+    padding: 4px 8px;
+    color: rgba(243, 240, 223, 0.78);
+    background: rgba(0, 0, 0, 0.28);
+    border: 1px solid rgba(199, 179, 119, 0.32);
+    cursor: pointer;
+    font: inherit;
     font-size: 11px;
-    padding: 2px 8px;
-    border-radius: 3px;
-    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
   }
-  .clear-btn:hover {
-    background: rgba(255, 255, 255, 0.1);
+
+  .clear-btn:hover,
+  .clear-btn:focus-visible {
+    border-color: rgba(199, 179, 119, 0.55);
+    background: rgba(255, 255, 255, 0.06);
+    outline: none;
   }
+
   .close {
+    color: #f3f0df;
     background: transparent;
-    border: none;
-    color: inherit;
-    font-size: 20px;
-    line-height: 1;
+    border: 0;
     cursor: pointer;
-    padding: 0 4px;
+    font-size: 22px;
+    line-height: 1;
+    padding: 0 2px;
   }
-  .close:hover {
-    color: #f88;
+
+  .close:hover,
+  .close:focus-visible {
+    opacity: 0.75;
+    outline: none;
   }
+
   .list {
     overflow-y: auto;
-    padding: 6px 12px;
+    padding: 10px 8px;
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 0;
   }
+
   .row {
     display: grid;
     grid-template-columns: auto auto 1fr;
     align-items: baseline;
     gap: 8px;
+    padding: 3px 8px;
+    border: 1px solid transparent;
   }
+
   .time {
-    color: rgba(255, 255, 255, 0.5);
+    color: rgba(243, 240, 223, 0.62);
+    font-size: 12px;
+    white-space: nowrap;
   }
+
   .pickup {
     width: 1em;
     text-align: center;
   }
+
   :global(.pickup-picked_up) {
     color: #5cd66a;
   }
+
   :global(.pickup-lost) {
-    color: rgba(255, 255, 255, 0.4);
+    color: rgba(243, 240, 223, 0.42);
   }
+
   :global(.pickup-pending) {
     color: #f0b400;
   }
+
   .name {
+    min-width: 0;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    font-size: 14px;
+    font-weight: 700;
   }
+
   .empty {
-    padding: 16px;
+    padding: 20px 8px;
     text-align: center;
-    color: rgba(255, 255, 255, 0.4);
+    color: rgba(243, 240, 223, 0.62);
+    font-size: 12px;
   }
 </style>

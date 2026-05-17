@@ -2,6 +2,7 @@
   import { invoke } from '@tauri-apps/api/core';
   import { listen } from '@tauri-apps/api/event';
   import { onMount, tick } from 'svelte';
+  import { clickOutside } from '../actions/click-outside';
   import {
     itemQualityColor,
     type MxlItemDetail,
@@ -25,7 +26,6 @@
   let loadingName = $state<string | null>(null);
   let tooltip = $state<MxlItemDetail | null>(null);
   let inputEl: HTMLInputElement | null = $state(null);
-  let layoutEl: HTMLDivElement | null = $state(null);
   let searchRequestId = 0;
   let detailRequestId = 0;
   let autoOpenSingleDetailedResult = false;
@@ -220,14 +220,6 @@
     }
   }
 
-  function handlePointerDown(event: PointerEvent) {
-    if (!active || !layoutEl) return;
-    const target = event.target;
-    if (target instanceof Node && !layoutEl.contains(target)) {
-      closeAll();
-    }
-  }
-
   onMount(() => {
     const unlisteners: Array<() => void> = [];
     let disposed = false;
@@ -245,19 +237,17 @@
       .catch((err) => console.error('[ItemSearch] failed to listen for open-item-search:', err));
 
     window.addEventListener('keydown', handleKeydown);
-    window.addEventListener('pointerdown', handlePointerDown, true);
 
     return () => {
       disposed = true;
       unlisteners.forEach((u) => u());
       window.removeEventListener('keydown', handleKeydown);
-      window.removeEventListener('pointerdown', handlePointerDown, true);
     };
   });
 </script>
 
 {#if open || tooltip}
-  <div class="item-search-layout" bind:this={layoutEl}>
+  <div class="item-search-layout" use:clickOutside={closeAll}>
     {#if open}
       <section class="item-search" role="dialog" aria-label="MXL item search">
         <header class="search-header">
