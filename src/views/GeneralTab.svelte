@@ -10,7 +10,13 @@
 
   const UNBOUND_HOTKEY: HotkeyConfig = { keyCode: 0, modifiers: 0, display: 'None' };
 
-  type HotkeyId = 'toggleWindow' | 'editOverlay' | 'revealHidden' | 'lootHistory' | 'dpsMeterReset';
+  type HotkeyId =
+    | 'toggleWindow'
+    | 'editOverlay'
+    | 'revealHidden'
+    | 'lootHistory'
+    | 'itemSearch'
+    | 'dpsMeterReset';
   interface HotkeyRow {
     id: HotkeyId;
     label: string;
@@ -42,6 +48,12 @@
       hint: 'Toggle the in-game loot log overlay (session drops)',
       setter: (h) => settingsStore.setLootHistoryHotkey(h),
     },
+    {
+      id: 'itemSearch',
+      label: 'Item search',
+      hint: 'Open the in-game MXL item database search overlay',
+      setter: (h) => settingsStore.setItemSearchHotkey(h),
+    },
   ];
 
   const DPS_HOTKEY_ROWS: readonly HotkeyRow[] = [
@@ -58,6 +70,7 @@
     editOverlay: () => settingsStore.settings.editOverlayHotkey,
     revealHidden: () => settingsStore.settings.revealHiddenHotkey,
     lootHistory: () => settingsStore.settings.lootHistoryHotkey,
+    itemSearch: () => settingsStore.settings.itemSearchHotkey,
     dpsMeterReset: () => settingsStore.settings.dpsMeter?.hotkeyReset ?? UNBOUND_HOTKEY,
   };
   let hotkeyValues = $derived(

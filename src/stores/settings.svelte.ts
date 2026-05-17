@@ -71,6 +71,8 @@ export interface AppSettings {
   revealHiddenHotkey: HotkeyConfig;
   /** Hotkey to toggle the in-game loot history overlay panel */
   lootHistoryHotkey: HotkeyConfig;
+  /** Hotkey to open the in-game MXL item search overlay */
+  itemSearchHotkey: HotkeyConfig;
   /** When true, scanner logs per-item filter decisions (noisy; opt-in debug). */
   verboseFilterLogging: boolean;
   autoAlwaysShowItems: boolean;
@@ -121,6 +123,12 @@ const DEFAULT_LOOT_HISTORY_HOTKEY: HotkeyConfig = {
   display: 'Alt+N',
 };
 
+const DEFAULT_ITEM_SEARCH_HOTKEY: HotkeyConfig = {
+  keyCode: 0x46,
+  modifiers: 0x0001,
+  display: 'Alt+F',
+};
+
 function defaultSounds(): SoundSlot[] {
   return Array.from({ length: 7 }, (_, i) => ({
     label: `Sound ${i + 1}`,
@@ -144,6 +152,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   editOverlayHotkey: DEFAULT_EDIT_OVERLAY_HOTKEY,
   revealHiddenHotkey: DEFAULT_REVEAL_HIDDEN_HOTKEY,
   lootHistoryHotkey: DEFAULT_LOOT_HISTORY_HOTKEY,
+  itemSearchHotkey: DEFAULT_ITEM_SEARCH_HOTKEY,
   verboseFilterLogging: false,
   autoAlwaysShowItems: true,
   autoNoPickup: true,
@@ -397,6 +406,19 @@ class SettingsStore {
       await invoke('update_loot_history_hotkey', { hotkey });
     } catch (error) {
       console.error('[Settings] Failed to update loot-history hotkey:', error);
+    }
+  }
+
+  get itemSearchHotkey(): HotkeyConfig {
+    return this._settings.itemSearchHotkey;
+  }
+
+  async setItemSearchHotkey(hotkey: HotkeyConfig): Promise<void> {
+    this.set('itemSearchHotkey', hotkey);
+    try {
+      await invoke('update_item_search_hotkey', { hotkey });
+    } catch (error) {
+      console.error('[Settings] Failed to update item-search hotkey:', error);
     }
   }
 

@@ -39,6 +39,12 @@ pub struct HotkeyConfig {
     pub display: String,
 }
 
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct OpenItemSearchPayload {
+    query: Option<String>,
+}
+
 impl Default for HotkeyConfig {
     fn default() -> Self {
         Self {
@@ -136,6 +142,29 @@ fn is_d2_or_app_foreground() -> bool {
         }
 
         false
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn is_d2_foreground() -> bool {
+    use std::ffi::OsStr;
+    use std::os::windows::ffi::OsStrExt;
+    use windows::core::PCWSTR;
+    use windows::Win32::UI::WindowsAndMessaging::{FindWindowW, GetForegroundWindow};
+
+    unsafe {
+        let fg = GetForegroundWindow();
+        if fg.0.is_null() {
+            return false;
+        }
+        let class: Vec<u16> = OsStr::new("Diablo II")
+            .encode_wide()
+            .chain(Some(0))
+            .collect();
+        match FindWindowW(PCWSTR(class.as_ptr()), PCWSTR::null()) {
+            Ok(d2) => !d2.0.is_null() && fg.0 == d2.0,
+            Err(_) => false,
+        }
     }
 }
 
@@ -346,6 +375,11 @@ fn chord_is_pressed(hk: &HotkeyConfig) -> bool {
     }
 
     chord_keys_are_pressed(hk)
+}
+
+#[cfg(target_os = "windows")]
+fn chord_is_pressed_d2_only(hk: &HotkeyConfig) -> bool {
+    is_d2_foreground() && chord_keys_are_pressed(hk)
 }
 
 #[cfg(target_os = "windows")]
@@ -689,6 +723,152 @@ pub fn update_loot_history_hotkey(
 ) -> Result<(), String> {
     log_info(&format!(
         "Updating loot-history hotkey to: {}",
+        hotkey.display
+    ));
+    state.start(app, hotkey);
+    Ok(())
+}
+
+pub struct ItemSearchHotkeyState {
+    is_running: Arc<AtomicBool>,
+    current_hotkey: Arc<std::sync::Mutex<HotkeyConfig>>,
+    #[cfg(target_os = "windows")]
+    scanner_state: Arc<std::sync::RwLock<Option<Arc<crate::scanner_state::SharedScannerState>>>>,
+}
+
+impl ItemSearchHotkeyState {
+    #[cfg(target_os = "windows")]
+    pub fn new(
+        scanner_state: Arc<
+            std::sync::RwLock<Option<Arc<crate::scanner_state::SharedScannerState>>>,
+        >,
+    ) -> Self {
+        Self {
+            is_running: Arc::new(AtomicBool::new(false)),
+            current_hotkey: Arc::new(std::sync::Mutex::new(default_item_search_hotkey())),
+            scanner_state,
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    pub fn new() -> Self {
+        Self {
+            is_running: Arc::new(AtomicBool::new(false)),
+            current_hotkey: Arc::new(std::sync::Mutex::new(default_item_search_hotkey())),
+        }
+    }
+
+    pub fn start(&self, app_handle: AppHandle, hotkey: HotkeyConfig) {
+        if self.is_running.load(Ordering::SeqCst) {
+            log_info("Item-search watcher already running, restarting with new config");
+            self.stop();
+            thread::sleep(std::time::Duration::from_millis(80));
+        }
+
+        if let Ok(mut current) = self.current_hotkey.lock() {
+            *current = hotkey.clone();
+        }
+
+        self.is_running.store(true, Ordering::SeqCst);
+        let is_running = self.is_running.clone();
+        let current_hotkey = self.current_hotkey.clone();
+
+        #[cfg(target_os = "windows")]
+        {
+            let scanner_state = self.scanner_state.clone();
+            thread::spawn(move || {
+                item_search_hotkey_thread_windows(
+                    is_running,
+                    current_hotkey,
+                    scanner_state,
+                    app_handle,
+                );
+            });
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            log_info("Item-search watcher is only supported on Windows");
+            let _ = (app_handle, current_hotkey);
+        }
+    }
+
+    pub fn stop(&self) {
+        self.is_running.store(false, Ordering::SeqCst);
+    }
+}
+
+fn default_item_search_hotkey() -> HotkeyConfig {
+    HotkeyConfig {
+        key_code: 0x46,
+        modifiers: 0x0001,
+        display: "Alt+F".to_string(),
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn item_search_hotkey_thread_windows(
+    is_running: Arc<AtomicBool>,
+    current_hotkey: Arc<std::sync::Mutex<HotkeyConfig>>,
+    scanner_state: Arc<std::sync::RwLock<Option<Arc<crate::scanner_state::SharedScannerState>>>>,
+    app_handle: AppHandle,
+) {
+    log_info("Item-search hotkey watcher thread starting");
+
+    let mut prev_down = false;
+    let mut last_key_code: u32 = 0;
+    let mut last_modifiers: u32 = 0;
+
+    while is_running.load(Ordering::SeqCst) {
+        let hk = match current_hotkey.lock() {
+            Ok(guard) => guard.clone(),
+            Err(_) => {
+                thread::sleep(std::time::Duration::from_millis(100));
+                continue;
+            }
+        };
+
+        if hk.key_code != last_key_code || hk.modifiers != last_modifiers {
+            prev_down = false;
+            last_key_code = hk.key_code;
+            last_modifiers = hk.modifiers;
+        }
+
+        let active = chord_is_pressed_d2_only(&hk);
+        if active && !prev_down {
+            let query = scanner_state
+                .read()
+                .ok()
+                .and_then(|guard| guard.as_ref().cloned())
+                .and_then(
+                    |shared| match crate::hovered_item::read_hovered_item_name(&shared) {
+                        Ok(name) => name,
+                        Err(e) => {
+                            log_error(&format!("Hovered item lookup failed: {}", e));
+                            None
+                        }
+                    },
+                );
+            if let Err(e) = app_handle.emit("open-item-search", OpenItemSearchPayload { query }) {
+                log_error(&format!("Failed to emit open-item-search: {}", e));
+            }
+        }
+        prev_down = active;
+
+        thread::sleep(std::time::Duration::from_millis(30));
+    }
+
+    log_info("Item-search hotkey watcher thread stopped");
+}
+
+#[tauri::command]
+pub fn update_item_search_hotkey(
+    state: tauri::State<ItemSearchHotkeyState>,
+    app: AppHandle,
+    hotkey: HotkeyConfig,
+) -> Result<(), String> {
+    log_info(&format!(
+        "Updating item-search hotkey to: {}",
         hotkey.display
     ));
     state.start(app, hotkey);

@@ -16,3 +16,4 @@ export { default as OverlayEditGrid } from './OverlayEditGrid.svelte';
 export { default as AlwaysShowItemsIndicator } from './AlwaysShowItemsIndicator.svelte';
 export { default as LootHistoryPanel } from './LootHistoryPanel.svelte';
 export { default as DpsMeter } from './DpsMeter.svelte';
+export { default as ItemSearchOverlay } from './ItemSearchOverlay.svelte';

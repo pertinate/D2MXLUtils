@@ -110,6 +110,25 @@ pub mod d2sigma {
     /// pointer itself drifts between MXL patches and is resolved at runtime
     /// by `process::resolve_always_show_items_ptr_rva`.
     pub const ALWAYS_SHOW_ITEMS_FLAG: usize = 0x24;
+
+    /// Native tooltip-builder hook. On function entry `[ESP+04]` is the
+    /// current tooltip item `UnitAny*`. Used as the primary item-search hover
+    /// identity source; see `docs/mxl-item-search-hover-re-session-report.md`.
+    pub const TOOLTIP_ITEM_HOOK: usize = 0xAE020;
+    pub const TOOLTIP_ITEM_HOOK_RESUME: usize = 0xAE025;
+    pub const TOOLTIP_ITEM_HOOK_PATCH_SIZE: usize = 5;
+    pub const TOOLTIP_ITEM_HOOK_PROLOGUE: [u8; TOOLTIP_ITEM_HOOK_PATCH_SIZE] =
+        [0x55, 0x8D, 0x6C, 0x24, 0xD8];
+    pub const TOOLTIP_ITEM_ARG_STACK_OFFSET: usize = 0x04;
+    /// If the trampoline starts with `pushfd; pushad`, the original `[ESP+04]`
+    /// argument is readable at `[ESP+28]` until registers/flags are restored.
+    pub const TOOLTIP_ITEM_ARG_AFTER_PUSHFD_PUSHAD: usize = 0x28;
+
+    /// Absolute low-memory range where RE found the native UTF-16 tooltip text
+    /// buffer. It can remain stale on empty hover, so do not use it as the
+    /// primary hovered-item identity source; use the D2Sigma+AE020 pUnit hook.
+    pub const TOOLTIP_TEXT_BUFFER_START: usize = 0x00194080;
+    pub const TOOLTIP_TEXT_BUFFER_END: usize = 0x00194280;
 }
 
 /// D2Lang.dll offsets
@@ -236,7 +255,11 @@ pub mod item_data {
     pub const SEED: usize = 0x14; // dword
     pub const FLAGS: usize = 0x18; // dword (item flags) - offset 0 + 4 + 5*4 = 0x18
     pub const FILE_INDEX: usize = 0x2C; // dword - offset 0x18 + 4 + 3*4 + 4 = 0x2C
+    pub const BODY_LOCATION: usize = 0x44; // byte (equipped body slot)
+    pub const ITEM_LOCATION: usize = 0x45; // byte (inventory/equipment location enum)
+    pub const OWNER_INVENTORY: usize = 0x5C; // dword (owning D2InventoryStrc*)
     pub const NEXT_ITEM: usize = 0x64; // dword (pointer to next item)
+    pub const GAME_LOCATION: usize = 0x68; // byte (inventory=3, cube=6, stash=7)
 }
 
 /// `D2InventoryStrc` field offsets. Layout from D2MOO

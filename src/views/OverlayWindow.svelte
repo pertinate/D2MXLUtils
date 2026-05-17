@@ -5,6 +5,7 @@
   import {
     AlwaysShowItemsIndicator,
     DpsMeter,
+    ItemSearchOverlay,
     LootHistoryPanel,
     NotificationStack,
     OverlayEditGrid,
@@ -49,6 +50,7 @@
 
   let editActive = $state(false);
   let historyVisible = $state(false);
+  let itemSearchActive = $state(false);
   let inGame = $state(false);
 
   let dpsMeterEnabled = $derived(settingsStore.settings.dpsMeter?.enabled ?? false);
@@ -91,6 +93,17 @@
     removalTimers.set(item.unit_id, timer);
   }
 
+  async function syncOverlayInteractivity() {
+    try {
+      await invoke('set_overlay_interactive', {
+        active: editActive || historyVisible || itemSearchActive,
+        keyboardActive: itemSearchActive,
+      });
+    } catch (err) {
+      console.error('[Overlay] set_overlay_interactive failed:', err);
+    }
+  }
+
   onMount(() => {
     const unlisteners: Array<() => void> = [];
     let syncTimer: number | null = null;
@@ -114,9 +127,7 @@
         await invoke('set_overlay_edit_mode', {
           active: editActive,
         });
-        await invoke('set_overlay_interactive', {
-          active: editActive || historyVisible,
-        });
+        await syncOverlayInteractivity();
       } catch (err) {
         console.error('[Overlay] edit mode update failed:', err);
       }
@@ -126,11 +137,7 @@
       const next = event.payload?.visible ?? !historyVisible;
       if (next === historyVisible) return;
       historyVisible = next;
-      try {
-        await invoke('set_overlay_interactive', { active: editActive || historyVisible });
-      } catch (err) {
-        console.error('[Overlay] set_overlay_interactive (history) failed:', err);
-      }
+      await syncOverlayInteractivity();
     }).then((u) => unlisteners.push(u));
 
     listen<string>('game-status', (event) => {
@@ -180,11 +187,17 @@
     {showOnlyMatchedStats}
   />
   <AlwaysShowItemsIndicator />
+  <ItemSearchOverlay
+    onActiveChange={(active) => {
+      itemSearchActive = active;
+      return syncOverlayInteractivity();
+    }}
+  />
   {#if historyVisible}
     <LootHistoryPanel
       onClose={() => {
         historyVisible = false;
-        invoke('set_overlay_interactive', { active: editActive }).catch(() => {});
+        void syncOverlayInteractivity();
       }}
     />
   {/if}

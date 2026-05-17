@@ -124,6 +124,10 @@ pub struct AppSettings {
     #[serde(default = "default_loot_history_hotkey")]
     pub loot_history_hotkey: HotkeyConfig,
 
+    /// Hotkey to open the in-game MXL item search overlay.
+    #[serde(default = "default_item_search_hotkey")]
+    pub item_search_hotkey: HotkeyConfig,
+
     /// When true, scanner logs per-item filter decisions (noisy; opt-in for debugging).
     #[serde(default)]
     pub verbose_filter_logging: bool,
@@ -221,6 +225,14 @@ fn default_loot_history_hotkey() -> HotkeyConfig {
     }
 }
 
+fn default_item_search_hotkey() -> HotkeyConfig {
+    HotkeyConfig {
+        key_code: 0x46,
+        modifiers: 0x0001,
+        display: "Alt+F".to_string(),
+    }
+}
+
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
@@ -237,6 +249,7 @@ impl Default for AppSettings {
             edit_overlay_hotkey: default_edit_overlay_hotkey(),
             reveal_hidden_hotkey: default_reveal_hidden_hotkey(),
             loot_history_hotkey: default_loot_history_hotkey(),
+            item_search_hotkey: default_item_search_hotkey(),
             verbose_filter_logging: false,
             auto_always_show_items: default_auto_always_show_items(),
             auto_no_pickup: default_auto_no_pickup(),
@@ -403,6 +416,14 @@ mod tests {
     #[test]
     fn default_settings_enable_auto_no_pickup() {
         assert!(AppSettings::default().auto_no_pickup);
+    }
+
+    #[test]
+    fn default_settings_include_item_search_hotkey() {
+        let hotkey = AppSettings::default().item_search_hotkey;
+        assert_eq!(hotkey.key_code, 0x46);
+        assert_eq!(hotkey.modifiers, 0x0001);
+        assert_eq!(hotkey.display, "Alt+F");
     }
 
     #[test]

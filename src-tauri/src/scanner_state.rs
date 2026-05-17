@@ -10,6 +10,7 @@ use std::sync::{Arc, Mutex, RwLock};
 
 use crate::dps_hook::DpsHook;
 use crate::dps_meter::DpsMeter;
+use crate::hovered_item::HoveredItemHook;
 use crate::injection::D2Injector;
 use crate::notifier::ItemDropEvent;
 use crate::offsets::d2client;
@@ -59,6 +60,7 @@ pub struct SharedScannerState {
     pub clear_markers: AtomicBool,
     pub stop: AtomicBool,
     pub dps_hook: Arc<DpsHook>,
+    pub hovered_item_hook: Arc<HoveredItemHook>,
     pub dps_meter: Arc<RwLock<DpsMeter>>,
     /// Last observed `*pAutomapLayer`. Sentinel `-1` = uninitialised
     /// (first read records, doesn't reset). `i64` so any 32-bit pointer
@@ -79,6 +81,7 @@ impl SharedScannerState {
             clear_markers: AtomicBool::new(false),
             stop: AtomicBool::new(false),
             dps_hook: Arc::new(DpsHook::new()),
+            hovered_item_hook: Arc::new(HoveredItemHook::new()),
             dps_meter: Arc::new(RwLock::new(DpsMeter::new())),
             last_area_token: AtomicI64::new(-1),
         }

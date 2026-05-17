@@ -6,6 +6,7 @@ mod dps_hook;
 mod dps_meter;
 mod hook_bit_tracker;
 mod hotkeys;
+mod hovered_item;
 mod injection;
 mod items_cache;
 mod logger;
@@ -14,6 +15,7 @@ mod loot_history;
 mod map_marker;
 mod marker_scanner;
 mod migrations;
+mod mxl_item_api;
 mod notifier;
 mod offsets;
 mod process;
@@ -34,7 +36,8 @@ use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, WindowEvent};
 
 use crate::hotkeys::{
-    DpsMeterResetHotkeyState, EditModeState, HotkeyState, LootHistoryHotkeyState, RevealHiddenState,
+    DpsMeterResetHotkeyState, EditModeState, HotkeyState, ItemSearchHotkeyState,
+    LootHistoryHotkeyState, RevealHiddenState,
 };
 use crate::logger::{error as log_error, info as log_info};
 use crate::loot_history::{LootEntry, LootHistory, PickupState};
@@ -70,10 +73,11 @@ use windows::Win32::UI::Shell::{FOLDERID_LocalAppData, SHGetKnownFolderPath, KF_
 #[cfg(target_os = "windows")]
 use windows::Win32::UI::WindowsAndMessaging::{
     FindWindowW, GetForegroundWindow, GetWindowLongW, GetWindowRect, IsIconic, MoveWindow,
-    SetWindowLongW, SetWindowPos, ShowWindow, GWL_EXSTYLE, GWL_STYLE, HWND_TOPMOST,
-    SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SW_HIDE, SW_SHOWNA,
-    WS_BORDER, WS_CAPTION, WS_DLGFRAME, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
-    WS_EX_TRANSPARENT, WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_POPUP, WS_SYSMENU, WS_THICKFRAME,
+    SetForegroundWindow, SetWindowLongW, SetWindowPos, ShowWindow, GWL_EXSTYLE, GWL_STYLE,
+    HWND_TOPMOST, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SW_HIDE,
+    SW_SHOW, SW_SHOWNA, WS_BORDER, WS_CAPTION, WS_DLGFRAME, WS_EX_LAYERED, WS_EX_NOACTIVATE,
+    WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT, WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_POPUP, WS_SYSMENU,
+    WS_THICKFRAME,
 };
 
 /// Shared state for controlling the scanner
@@ -168,6 +172,9 @@ fn start_scanner_internal(
     breakpoints_polling: Arc<AtomicBool>,
     weapon_base_catalog: Arc<RwLock<Option<weapon_families::WeaponBaseCatalog>>>,
     dps_reset_pending: Arc<AtomicBool>,
+    #[cfg(target_os = "windows")] scanner_shared_state: Arc<
+        RwLock<Option<Arc<crate::scanner_state::SharedScannerState>>>,
+    >,
     app_handle: AppHandle,
 ) {
     // Check if already running
@@ -263,6 +270,9 @@ fn start_scanner_internal(
                         return;
                     }
                 };
+                if let Ok(mut guard) = scanner_shared_state.write() {
+                    *guard = Some(shared_state.clone());
+                }
                 // Non-fatal: loot/notification path keeps working without
                 // DPS readings if the hook fails to install.
                 if let Err(e) = shared_state.dps_hook.install(
@@ -271,6 +281,9 @@ fn start_scanner_internal(
                     shared_state.ctx.d2_client,
                 ) {
                     log_error(&format!("DPS hook install failed: {}", e));
+                }
+                if let Err(e) = shared_state.hovered_item_hook.install(&shared_state.ctx) {
+                    log_error(&format!("Hovered-item hook install failed: {}", e));
                 }
 
                 (shared_state, scanner)
@@ -724,7 +737,17 @@ fn start_scanner_internal(
             // owned by SharedScannerState; otherwise Drop would run after the
             // handle closes and leave the E9 patch behind.
             #[cfg(target_os = "windows")]
+            if let Err(e) = shared_state.hovered_item_hook.uninstall() {
+                log_error(&format!("Hovered-item hook uninstall failed: {}", e));
+            }
+
+            #[cfg(target_os = "windows")]
             let _ = shared_state.dps_hook.uninstall();
+
+            #[cfg(target_os = "windows")]
+            if let Ok(mut guard) = scanner_shared_state.write() {
+                *guard = None;
+            }
 
             // Signal the marker thread, then emit user-visible status before
             // joining — the join can block for one BFS tick.
@@ -776,6 +799,9 @@ fn spawn_auto_scanner(
     breakpoints_polling: Arc<AtomicBool>,
     weapon_base_catalog: Arc<RwLock<Option<weapon_families::WeaponBaseCatalog>>>,
     dps_reset_pending: Arc<AtomicBool>,
+    #[cfg(target_os = "windows")] scanner_shared_state: Arc<
+        RwLock<Option<Arc<crate::scanner_state::SharedScannerState>>>,
+    >,
     app_handle: AppHandle,
 ) {
     thread::spawn(move || {
@@ -797,6 +823,8 @@ fn spawn_auto_scanner(
                     breakpoints_polling.clone(),
                     weapon_base_catalog.clone(),
                     dps_reset_pending.clone(),
+                    #[cfg(target_os = "windows")]
+                    scanner_shared_state.clone(),
                     app_handle.clone(),
                 );
             }
@@ -979,15 +1007,30 @@ fn get_item_filter_action(
 }
 
 #[tauri::command]
-fn set_overlay_interactive(app: AppHandle, active: bool) -> Result<(), String> {
+fn set_overlay_interactive(
+    app: AppHandle,
+    active: bool,
+    keyboard_active: bool,
+) -> Result<(), String> {
     OVERLAY_CLICK_THROUGH.store(!active, Ordering::SeqCst);
+    OVERLAY_KEYBOARD_INTERACTIVE.store(keyboard_active, Ordering::SeqCst);
     #[cfg(target_os = "windows")]
     {
         let _ = sync_overlay_with_game_impl(&app);
+        if overlay_should_force_foreground(active, keyboard_active) {
+            force_overlay_foreground(&app);
+        }
     }
     #[cfg(not(target_os = "windows"))]
     {
-        let _ = app;
+        let _ = &app;
+    }
+    if active && keyboard_active {
+        if let Some(overlay) = app.get_webview_window("overlay") {
+            if let Err(e) = overlay.set_focus() {
+                log_error(&format!("Failed to focus overlay window: {}", e));
+            }
+        }
     }
     Ok(())
 }
@@ -1022,6 +1065,7 @@ fn sync_overlay_with_game(app: AppHandle) -> Result<(), String> {
 
 static OVERLAY_WAS_VISIBLE: AtomicBool = AtomicBool::new(false);
 static OVERLAY_CLICK_THROUGH: AtomicBool = AtomicBool::new(true);
+static OVERLAY_KEYBOARD_INTERACTIVE: AtomicBool = AtomicBool::new(false);
 static OVERLAY_STYLES_APPLIED: AtomicBool = AtomicBool::new(false);
 static OVERLAY_EDIT_ACTIVE: AtomicBool = AtomicBool::new(false);
 
@@ -1029,6 +1073,8 @@ static OVERLAY_EDIT_ACTIVE: AtomicBool = AtomicBool::new(false);
 static OVERLAY_LAST_CLICK_THROUGH_APPLIED: std::sync::atomic::AtomicI8 =
     std::sync::atomic::AtomicI8::new(-1);
 static OVERLAY_LAST_EDIT_MODE_APPLIED: std::sync::atomic::AtomicI8 =
+    std::sync::atomic::AtomicI8::new(-1);
+static OVERLAY_LAST_KEYBOARD_INTERACTIVE_APPLIED: std::sync::atomic::AtomicI8 =
     std::sync::atomic::AtomicI8::new(-1);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1062,8 +1108,45 @@ fn overlay_window_spec(kind: OverlayWindowKind) -> OverlayWindowSpec {
     }
 }
 
-fn overlay_should_be_visible(foreground_matches_game: bool, _game_minimized: bool) -> bool {
-    foreground_matches_game && !_game_minimized
+fn overlay_should_be_visible(
+    foreground_matches_game: bool,
+    foreground_matches_overlay: bool,
+    game_minimized: bool,
+    keyboard_interactive: bool,
+) -> bool {
+    !game_minimized
+        && (foreground_matches_game || (keyboard_interactive && foreground_matches_overlay))
+}
+
+fn overlay_should_use_noactivate(keyboard_interactive: bool) -> bool {
+    !keyboard_interactive
+}
+
+fn overlay_should_force_foreground(active: bool, keyboard_active: bool) -> bool {
+    active && keyboard_active
+}
+
+fn overlay_window_kind_for_state(edit_active: bool, click_through: bool) -> OverlayWindowKind {
+    if edit_active || !click_through {
+        OverlayWindowKind::Edit
+    } else {
+        OverlayWindowKind::Visual
+    }
+}
+
+fn overlay_style_needs_update(
+    just_applied: bool,
+    last_click_through: i8,
+    desired_click_through: i8,
+    last_edit_mode: i8,
+    desired_edit_mode: i8,
+    last_keyboard_interactive: i8,
+    desired_keyboard_interactive: i8,
+) -> bool {
+    just_applied
+        || last_click_through != desired_click_through
+        || last_edit_mode != desired_edit_mode
+        || last_keyboard_interactive != desired_keyboard_interactive
 }
 
 fn overlay_should_strip_chrome(_style_changed: bool, chrome_present: bool) -> bool {
@@ -1085,11 +1168,42 @@ fn overlay_chrome_mask() -> i32 {
 static OVERLAY_LAST_RECT: Mutex<Option<RECT>> = Mutex::new(None);
 
 #[cfg(target_os = "windows")]
+fn force_overlay_foreground(app: &AppHandle) {
+    let spec = overlay_window_spec(OverlayWindowKind::Visual);
+    let Some(overlay) = app.get_webview_window(spec.label) else {
+        return;
+    };
+
+    let hwnd_overlay = match overlay.hwnd() {
+        Ok(hwnd) => hwnd,
+        Err(e) => {
+            log_error(&format!(
+                "Failed to get overlay HWND for foreground activation: {}",
+                e
+            ));
+            return;
+        }
+    };
+    let hwnd_overlay = HWND(hwnd_overlay.0 as _);
+
+    if hwnd_overlay.0.is_null() {
+        return;
+    }
+
+    unsafe {
+        if !SetForegroundWindow(hwnd_overlay).as_bool() {
+            log_error("Failed to activate overlay foreground for item search");
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
 fn reset_overlay_runtime_state() {
     OVERLAY_WAS_VISIBLE.store(false, Ordering::SeqCst);
     OVERLAY_STYLES_APPLIED.store(false, Ordering::SeqCst);
     OVERLAY_LAST_CLICK_THROUGH_APPLIED.store(-1, Ordering::SeqCst);
     OVERLAY_LAST_EDIT_MODE_APPLIED.store(-1, Ordering::SeqCst);
+    OVERLAY_LAST_KEYBOARD_INTERACTIVE_APPLIED.store(-1, Ordering::SeqCst);
     if let Ok(mut last) = OVERLAY_LAST_RECT.lock() {
         *last = None;
     }
@@ -1117,9 +1231,43 @@ mod overlay_window_tests {
 
     #[test]
     fn overlay_is_hidden_when_game_is_minimized_even_if_foreground_still_matches() {
-        assert!(overlay_should_be_visible(true, false));
-        assert!(!overlay_should_be_visible(false, false));
-        assert!(!overlay_should_be_visible(true, true));
+        assert!(overlay_should_be_visible(true, false, false, false));
+        assert!(!overlay_should_be_visible(false, false, false, false));
+        assert!(!overlay_should_be_visible(true, false, true, false));
+    }
+
+    #[test]
+    fn overlay_stays_visible_when_keyboard_panel_has_focus() {
+        assert!(overlay_should_be_visible(false, true, false, true));
+        assert!(!overlay_should_be_visible(false, true, false, false));
+        assert!(!overlay_should_be_visible(false, true, true, true));
+    }
+
+    #[test]
+    fn keyboard_interactive_overlay_can_activate() {
+        assert!(overlay_should_use_noactivate(false));
+        assert!(!overlay_should_use_noactivate(true));
+    }
+
+    #[test]
+    fn keyboard_interactive_overlay_forces_foreground_on_open() {
+        assert!(overlay_should_force_foreground(true, true));
+        assert!(!overlay_should_force_foreground(true, false));
+        assert!(!overlay_should_force_foreground(false, true));
+    }
+
+    #[test]
+    fn keyboard_interactive_change_reapplies_overlay_style() {
+        assert!(overlay_style_needs_update(false, 0, 0, 0, 0, 0, 1));
+        assert!(!overlay_style_needs_update(false, 0, 0, 0, 0, 1, 1));
+    }
+
+    #[test]
+    fn interactive_overlay_uses_non_layered_mode() {
+        assert_eq!(
+            overlay_window_kind_for_state(false, false),
+            OverlayWindowKind::Edit
+        );
     }
 
     #[test]
@@ -1167,7 +1315,13 @@ fn sync_overlay_with_game_impl(app: &AppHandle) -> Result<(), String> {
     unsafe {
         let fg = GetForegroundWindow();
         let game_minimized = IsIconic(hwnd_game).as_bool();
-        if !overlay_should_be_visible(fg.0 == hwnd_game.0, game_minimized) {
+        let keyboard_interactive = OVERLAY_KEYBOARD_INTERACTIVE.load(Ordering::SeqCst);
+        if !overlay_should_be_visible(
+            fg.0 == hwnd_game.0,
+            fg.0 == hwnd_overlay.0,
+            game_minimized,
+            keyboard_interactive,
+        ) {
             let _ = ShowWindow(hwnd_overlay, SW_HIDE);
             let _ = overlay_window.hide();
             reset_overlay_runtime_state();
@@ -1191,20 +1345,31 @@ fn sync_overlay_with_game_impl(app: &AppHandle) -> Result<(), String> {
         // that flickers the screen edges and steals mouse input.
         let just_applied = !OVERLAY_STYLES_APPLIED.swap(true, Ordering::SeqCst);
         let edit_active = OVERLAY_EDIT_ACTIVE.load(Ordering::SeqCst);
-        let mode_spec = overlay_window_spec(if edit_active {
-            OverlayWindowKind::Edit
-        } else {
-            OverlayWindowKind::Visual
-        });
-        let desired_ct = mode_spec.click_through && OVERLAY_CLICK_THROUGH.load(Ordering::SeqCst);
+        let keyboard_interactive = OVERLAY_KEYBOARD_INTERACTIVE.load(Ordering::SeqCst);
+        let click_through = OVERLAY_CLICK_THROUGH.load(Ordering::SeqCst);
+        let mode_spec =
+            overlay_window_spec(overlay_window_kind_for_state(edit_active, click_through));
+        let desired_ct = mode_spec.click_through && click_through;
         let desired_ct_i8 = if desired_ct { 1 } else { 0 };
         let edit_active_i8 = if edit_active { 1 } else { 0 };
-        let needs_style = just_applied
-            || OVERLAY_LAST_CLICK_THROUGH_APPLIED.load(Ordering::SeqCst) != desired_ct_i8
-            || OVERLAY_LAST_EDIT_MODE_APPLIED.load(Ordering::SeqCst) != edit_active_i8;
+        let keyboard_interactive_i8 = if keyboard_interactive { 1 } else { 0 };
+        let needs_style = overlay_style_needs_update(
+            just_applied,
+            OVERLAY_LAST_CLICK_THROUGH_APPLIED.load(Ordering::SeqCst),
+            desired_ct_i8,
+            OVERLAY_LAST_EDIT_MODE_APPLIED.load(Ordering::SeqCst),
+            edit_active_i8,
+            OVERLAY_LAST_KEYBOARD_INTERACTIVE_APPLIED.load(Ordering::SeqCst),
+            keyboard_interactive_i8,
+        );
         if needs_style {
             let ex_style = GetWindowLongW(hwnd_overlay, GWL_EXSTYLE);
-            let mut new_ex = ex_style | WS_EX_TOOLWINDOW.0 as i32 | WS_EX_NOACTIVATE.0 as i32;
+            let mut new_ex = ex_style | WS_EX_TOOLWINDOW.0 as i32;
+            if overlay_should_use_noactivate(keyboard_interactive) {
+                new_ex |= WS_EX_NOACTIVATE.0 as i32;
+            } else {
+                new_ex &= !(WS_EX_NOACTIVATE.0 as i32);
+            }
             if mode_spec.layered {
                 new_ex |= WS_EX_LAYERED.0 as i32;
             } else {
@@ -1218,6 +1383,8 @@ fn sync_overlay_with_game_impl(app: &AppHandle) -> Result<(), String> {
             SetWindowLongW(hwnd_overlay, GWL_EXSTYLE, new_ex);
             OVERLAY_LAST_CLICK_THROUGH_APPLIED.store(desired_ct_i8, Ordering::SeqCst);
             OVERLAY_LAST_EDIT_MODE_APPLIED.store(edit_active_i8, Ordering::SeqCst);
+            OVERLAY_LAST_KEYBOARD_INTERACTIVE_APPLIED
+                .store(keyboard_interactive_i8, Ordering::SeqCst);
 
             // Suppress the 1px Win11 DWM accent frame; ignored on Win10.
             const DWMWA_COLOR_NONE: u32 = 0xFFFFFFFE;
@@ -1260,7 +1427,12 @@ fn sync_overlay_with_game_impl(app: &AppHandle) -> Result<(), String> {
                 height + 1,
                 BOOL(1),
             );
-            let _ = ShowWindow(hwnd_overlay, SW_SHOWNA);
+            let show_cmd = if keyboard_interactive {
+                SW_SHOW
+            } else {
+                SW_SHOWNA
+            };
+            let _ = ShowWindow(hwnd_overlay, show_cmd);
             let _ = MoveWindow(hwnd_overlay, rect.left, rect.top, width, height, BOOL(1));
             if let Ok(mut last) = OVERLAY_LAST_RECT.lock() {
                 *last = Some(rect);
@@ -1591,6 +1763,9 @@ fn main() {
 
             let initial_filter_config = load_initial_filter_config(app.handle());
 
+            #[cfg(target_os = "windows")]
+            let scanner_shared_state = Arc::new(RwLock::new(None));
+
             // Shared scanner state
             let state = AppState {
                 is_scanning: Arc::new(AtomicBool::new(false)),
@@ -1627,6 +1802,7 @@ fn main() {
             let weapon_base_catalog = state.weapon_base_catalog.clone();
             let dps_reset_pending = state.dps_reset_pending.clone();
             app.manage(state);
+            app.manage(mxl_item_api::MxlItemApiState::default());
 
             if let Some(dir) = app.handle().path().app_data_dir().ok() {
                 if let Some(table) = speedcalc_data::load_from_cache(&dir) {
@@ -1641,6 +1817,10 @@ fn main() {
             let edit_mode_state = EditModeState::new();
             let reveal_hidden_state = RevealHiddenState::new(reveal_hidden_active.clone());
             let loot_history_hotkey_state = LootHistoryHotkeyState::new();
+            #[cfg(target_os = "windows")]
+            let item_search_hotkey_state = ItemSearchHotkeyState::new(scanner_shared_state.clone());
+            #[cfg(not(target_os = "windows"))]
+            let item_search_hotkey_state = ItemSearchHotkeyState::new();
             let dps_meter_reset_state = DpsMeterResetHotkeyState::new();
 
             // Load settings and start hotkey listener
@@ -1648,6 +1828,7 @@ fn main() {
             let app_handle_for_edit_mode = app.handle().clone();
             let app_handle_for_reveal = app.handle().clone();
             let app_handle_for_loot_history = app.handle().clone();
+            let app_handle_for_item_search = app.handle().clone();
             let app_handle_for_dps_reset = app.handle().clone();
             match settings::load_settings(app.handle().clone()) {
                 Ok(loaded_settings) => {
@@ -1662,6 +1843,10 @@ fn main() {
                     loot_history_hotkey_state.start(
                         app_handle_for_loot_history,
                         loaded_settings.loot_history_hotkey,
+                    );
+                    item_search_hotkey_state.start(
+                        app_handle_for_item_search,
+                        loaded_settings.item_search_hotkey,
                     );
                     if let Some(hk) = loaded_settings.dps_meter.hotkey_reset.clone() {
                         dps_meter_reset_state.start(app_handle_for_dps_reset, hk);
@@ -1681,6 +1866,8 @@ fn main() {
                     reveal_hidden_state.start(app_handle_for_reveal, defaults.reveal_hidden_hotkey);
                     loot_history_hotkey_state
                         .start(app_handle_for_loot_history, defaults.loot_history_hotkey);
+                    item_search_hotkey_state
+                        .start(app_handle_for_item_search, defaults.item_search_hotkey);
                     let _ = app_handle_for_dps_reset;
                 }
             }
@@ -1689,6 +1876,7 @@ fn main() {
             app.manage(edit_mode_state);
             app.manage(reveal_hidden_state);
             app.manage(loot_history_hotkey_state);
+            app.manage(item_search_hotkey_state);
             app.manage(dps_meter_reset_state);
 
             // Spawn auto-scanner monitor
@@ -1709,6 +1897,8 @@ fn main() {
                 breakpoints_polling.clone(),
                 weapon_base_catalog.clone(),
                 dps_reset_pending.clone(),
+                #[cfg(target_os = "windows")]
+                scanner_shared_state.clone(),
                 app_handle,
             );
 
@@ -1788,8 +1978,10 @@ fn main() {
             hotkeys::update_edit_mode_hotkey,
             hotkeys::update_reveal_hidden_hotkey,
             hotkeys::update_loot_history_hotkey,
+            hotkeys::update_item_search_hotkey,
             hotkeys::update_dps_meter_reset_hotkey,
             reset_dps_session,
+            mxl_item_api::search_mxl_items,
             profiles::list_profiles,
             profiles::load_profile,
             profiles::save_profile,
