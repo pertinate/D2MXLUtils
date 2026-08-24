@@ -130,7 +130,8 @@ jobs:
             patchelf \
             build-essential \
             libssl-dev \
-            file
+            file \
+            libasound2-dev
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
