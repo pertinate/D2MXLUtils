@@ -166,6 +166,7 @@ jobs:
           pacman -Syu --noconfirm --needed \
             webkit2gtk-4.1 \
             gtk3 \
+            gdk-pixbuf2 \
             librsvg \
             patchelf \
             openssl \
