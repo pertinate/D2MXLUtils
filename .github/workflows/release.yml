@@ -4,6 +4,13 @@ on:
   push:
     tags:
       - "v*.*.*"
+  # Manual test runs (Actions tab, or `gh workflow run release.yml`) with
+  # no tag push required. Note: `github.ref_name` is the branch name in
+  # this case, so `softprops/action-gh-release` creates a tag/release
+  # named after the branch rather than a version — fine for verifying the
+  # pipeline builds/uploads correctly, just delete the resulting tag +
+  # release afterward.
+  workflow_dispatch:
 
 permissions:
   contents: write
