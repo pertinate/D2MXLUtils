@@ -14,7 +14,7 @@
 //! Never mutate `pFloors` or `pWalls` — that corrupts revealed terrain.
 //! See `docs/map-marker-reverse-engineering.md` for offset calibration.
 
-#![cfg(target_os = "windows")]
+#![cfg(any(target_os = "windows", target_os = "linux"))]
 
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet};

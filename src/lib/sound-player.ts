@@ -10,7 +10,7 @@
  * `cloneNode` so a new drop never cuts off a previous one.
  */
 
-import { convertFileSrc } from '@tauri-apps/api/core';
+import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { appDataDir } from '@tauri-apps/api/path';
 import { settingsStore, type SoundSlot } from '../stores/settings.svelte';
 
@@ -48,6 +48,27 @@ function urlForSlot(slot: SoundSlot, index1: number, dir: string): string | null
 }
 
 /**
+ * Native-playback fallback: fetches the same bytes the `<audio>` element
+ * would have used and hands them to the Rust backend (`rodio`, talking to
+ * ALSA/PulseAudio/PipeWire directly) instead. Used when the webview's own
+ * audio element fails outright — observed on some Linux/WebKitGTK setups
+ * where `<audio>`/`Audio.play()` reject every format (`MEDIA_ERR_SRC_NOT_SUPPORTED`)
+ * even though the system's media stack works fine outside the browser.
+ */
+async function playViaNativeFallback(url: string, gain: number): Promise<void> {
+  try {
+    const resp = await fetch(url);
+    const buf = await resp.arrayBuffer();
+    await invoke('play_audio_bytes_native', {
+      bytes: Array.from(new Uint8Array(buf)),
+      volume: gain,
+    });
+  } catch (err) {
+    console.warn(`[sound-player] native fallback failed for ${url}:`, err);
+  }
+}
+
+/**
  * Play the audio for the given 1-based slot index at `master * slot.volume`.
  * Empty slots, missing slots, or zero gain are silent no-ops.
  */
@@ -74,6 +95,7 @@ export async function playSound(index1: number, masterVolume: number): Promise<v
   const node = entry.audio.cloneNode(true) as HTMLAudioElement;
   node.volume = gain;
   void node.play().catch((err) => {
-    console.warn(`[sound-player] playback failed for slot ${index1}:`, err);
+    console.warn(`[sound-player] playback failed for slot ${index1}, falling back to native:`, err);
+    void playViaNativeFallback(url, gain);
   });
 }

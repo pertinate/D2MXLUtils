@@ -1,15 +1,21 @@
 //! State shared by the items and marker scanner threads. Wrap-once at
 //! startup, clone the outer `Arc` per thread. `injector` and
 //! `recent_events` locks must never be held simultaneously.
-
-#![cfg(target_os = "windows")]
+//!
+//! `hovered_item_hook` and `dps_hook` are inline-code-hooking subsystems,
+//! both ported to Linux (see `dps_hook/mod.rs`'s and `hovered_item.rs`'s
+//! `ProcessRef`-based splits). Everything else here is OS-agnostic once
+//! `process.rs`/`injection.rs` provide a `D2Context`/`D2Injector` for the
+//! current OS.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64};
 use std::sync::{Arc, Mutex, RwLock};
 
+#[cfg(any(target_os = "windows", target_os = "linux"))]
 use crate::dps_hook::DpsHook;
 use crate::dps_meter::DpsMeter;
+#[cfg(any(target_os = "windows", target_os = "linux"))]
 use crate::hovered_item::HoveredItemHook;
 use crate::injection::D2Injector;
 use crate::notifier::ItemDropEvent;
@@ -59,7 +65,9 @@ pub struct SharedScannerState {
     /// of tick.
     pub clear_markers: AtomicBool,
     pub stop: AtomicBool,
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
     pub dps_hook: Arc<DpsHook>,
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
     pub hovered_item_hook: Arc<HoveredItemHook>,
     pub dps_meter: Arc<RwLock<DpsMeter>>,
     /// Last observed `*pAutomapLayer`. Sentinel `-1` = uninitialised
@@ -80,7 +88,9 @@ impl SharedScannerState {
             recent_bfs_items: RwLock::new(HashMap::new()),
             clear_markers: AtomicBool::new(false),
             stop: AtomicBool::new(false),
+            #[cfg(any(target_os = "windows", target_os = "linux"))]
             dps_hook: Arc::new(DpsHook::new()),
+            #[cfg(any(target_os = "windows", target_os = "linux"))]
             hovered_item_hook: Arc::new(HoveredItemHook::new()),
             dps_meter: Arc::new(RwLock::new(DpsMeter::new())),
             last_area_token: AtomicI64::new(-1),

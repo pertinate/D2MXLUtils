@@ -33,6 +33,16 @@ pub mod d2client {
         /// 6-byte stub: `call NewAutomapCell; ret`. EAX on return = AutomapCell*.
         /// Placed well past INJECT_GET_UNIT_STAT (`0x54` + ~17 bytes) with pad.
         pub const NEW_AUTOMAP_CELL: usize = 0x70;
+
+        /// Linux only: staging address for a small hand-written `mmap2`
+        /// syscall stub (~40 bytes), used once per `D2Injector::new` to
+        /// allocate real `string_buffer`/`params_buffer` scratch pages —
+        /// the Linux analog of `VirtualAllocEx`. Empirically confirmed free
+        /// (all-zero for the surrounding 512 bytes on a live process) —
+        /// see `process.rs`'s `live_probe::find_free_padding_runs` test.
+        /// Placed comfortably past `NEW_AUTOMAP_CELL`'s 6-byte stub (ends
+        /// `+0x76`).
+        pub const LINUX_MMAP_STUB: usize = 0x90;
     }
 
     /// Internal D2Client functions

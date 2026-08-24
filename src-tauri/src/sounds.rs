@@ -110,6 +110,51 @@ pub fn delete_sound_file(app: AppHandle, slot: u8) -> Result<(), String> {
     Ok(())
 }
 
+/// Fallback playback path used by the frontend when the webview's own
+/// `<audio>` element fails (`sound-player.ts` calls this from its error
+/// handler, so this normally only ever fires on Linux — see the Cargo.toml
+/// comment on the `rodio` dependency for why). Plays `bytes` directly
+/// through the system's audio device, bypassing WebKitGTK's media stack
+/// entirely. Fire-and-forget: spawns its own thread and returns
+/// immediately, matching the fire-and-forget nature of the JS `Audio.play()`
+/// call it's standing in for.
+#[tauri::command]
+pub fn play_audio_bytes_native(bytes: Vec<u8>, volume: f32) -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    {
+        std::thread::spawn(move || {
+            let (_stream, stream_handle) = match rodio::OutputStream::try_default() {
+                Ok(s) => s,
+                Err(e) => {
+                    log_error(&format!("rodio OutputStream::try_default failed: {}", e));
+                    return;
+                }
+            };
+            let sink = match rodio::Sink::try_new(&stream_handle) {
+                Ok(s) => s,
+                Err(e) => {
+                    log_error(&format!("rodio Sink::try_new failed: {}", e));
+                    return;
+                }
+            };
+            match rodio::Decoder::new(std::io::Cursor::new(bytes)) {
+                Ok(source) => {
+                    sink.set_volume(volume.clamp(0.0, 1.0));
+                    sink.append(source);
+                    sink.sleep_until_end();
+                }
+                Err(e) => log_error(&format!("rodio Decoder::new failed: {}", e)),
+            }
+        });
+        Ok(())
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (bytes, volume);
+        Err("native audio playback is only needed on Linux".to_string())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
