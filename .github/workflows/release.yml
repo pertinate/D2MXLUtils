@@ -171,6 +171,7 @@ jobs:
             openssl \
             file \
             alsa-lib \
+            fuse2 \
             curl \
             wget
 
