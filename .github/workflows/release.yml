@@ -104,6 +104,17 @@ jobs:
   build-and-release-linux:
     needs: build-and-release
     runs-on: ubuntu-latest
+    # Ubuntu 24.04's (`ubuntu-latest`'s host) apt-packaged webkit2gtk-4.1
+    # is several minor versions behind current — bundling it into the
+    # AppImage produced a build that crashed its own GPU/renderer process
+    # on startup ("Could not create default EGL display: EGL_BAD_PARAMETER
+    # Aborting...", page background paints but no content ever does).
+    # Building inside an Arch container instead bundles the same
+    # webkit2gtk-4.1 (2.52.x) already verified working via a local,
+    # unbundled build on Arch — confirmed the container's version, not
+    # anything in our own build steps, was the actual cause.
+    container:
+      image: archlinux:base-devel
     env:
       HUSKY: 0
       # linuxdeploy bundles an older `strip` that can't parse the
@@ -114,6 +125,13 @@ jobs:
       NO_STRIP: 1
 
     steps:
+      # `actions/checkout` needs git, which isn't part of `base-devel`;
+      # everything else it and the later JS-based actions
+      # (`pnpm/action-setup`, `actions/setup-node`) need, they bring with
+      # them via the runner's own bundled Node.js, not the container image.
+      - name: Install git
+        run: pacman -Sy --noconfirm --needed git
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
@@ -121,17 +139,16 @@ jobs:
 
       - name: Install Linux build dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            libgtk-3-dev \
-            librsvg2-dev \
-            libayatana-appindicator3-dev \
+          pacman -Syu --noconfirm --needed \
+            webkit2gtk-4.1 \
+            gtk3 \
+            librsvg \
             patchelf \
-            build-essential \
-            libssl-dev \
+            openssl \
             file \
-            libasound2-dev
+            alsa-lib \
+            curl \
+            wget
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
