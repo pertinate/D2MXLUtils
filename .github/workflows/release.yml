@@ -183,8 +183,14 @@ jobs:
         run: |
           curl -Lo /tmp/linuxdeploy-x86_64.AppImage https://github.com/tauri-apps/binary-releases/releases/download/linuxdeploy/linuxdeploy-x86_64.AppImage
           chmod +x /tmp/linuxdeploy-x86_64.AppImage
+          echo "--- with explicit --appimage-extract-and-run flag ---"
           /tmp/linuxdeploy-x86_64.AppImage --appimage-extract-and-run --version || echo "EXIT CODE: $?"
-          ldd /tmp/linuxdeploy-x86_64.AppImage || true
+          echo "--- relying only on APPIMAGE_EXTRACT_AND_RUN env var (how tauri actually invokes it) ---"
+          APPIMAGE_EXTRACT_AND_RUN=1 /tmp/linuxdeploy-x86_64.AppImage --version || echo "EXIT CODE: $?"
+          echo "--- the appimage OUTPUT plugin, which is what actually builds the .AppImage and is invoked as a subprocess by linuxdeploy ---"
+          curl -Lo /tmp/linuxdeploy-plugin-appimage-x86_64.AppImage https://github.com/linuxdeploy/linuxdeploy-plugin-appimage/releases/download/continuous/linuxdeploy-plugin-appimage-x86_64.AppImage
+          chmod +x /tmp/linuxdeploy-plugin-appimage-x86_64.AppImage
+          APPIMAGE_EXTRACT_AND_RUN=1 /tmp/linuxdeploy-plugin-appimage-x86_64.AppImage --appimage-version || echo "EXIT CODE: $?"
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
