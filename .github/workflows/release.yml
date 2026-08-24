@@ -175,6 +175,17 @@ jobs:
             curl \
             wget
 
+      # DEBUG: tauri-bundler swallows linuxdeploy's actual stderr, only
+      # ever reporting "failed to run linuxdeploy" — run it ourselves
+      # first so the real failure reason lands in this log. Remove once
+      # the AppImage build step is confirmed working.
+      - name: Debug - run linuxdeploy directly
+        run: |
+          curl -Lo /tmp/linuxdeploy-x86_64.AppImage https://github.com/tauri-apps/binary-releases/releases/download/linuxdeploy/linuxdeploy-x86_64.AppImage
+          chmod +x /tmp/linuxdeploy-x86_64.AppImage
+          /tmp/linuxdeploy-x86_64.AppImage --appimage-extract-and-run --version || echo "EXIT CODE: $?"
+          ldd /tmp/linuxdeploy-x86_64.AppImage || true
+
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
 
