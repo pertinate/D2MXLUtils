@@ -191,6 +191,18 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # linuxdeploy's gtk plugin unconditionally `cp`s
+      # /usr/lib/gdk-pixbuf-2.0/2.10.0 into the AppDir and treats a
+      # missing source directory as fatal. Modern Arch's gdk-pixbuf2
+      # (2.44.7 here) has no separate loader .so files at all anymore —
+      # PNG/JPEG/etc. support is compiled directly into
+      # libgdk_pixbuf-2.0.so — so that directory legitimately doesn't
+      # exist, not because anything is missing. An empty stand-in
+      # satisfies the plugin's `cp` (nothing needs copying, the app
+      # doesn't depend on loader modules that no longer exist).
+      - name: Work around linuxdeploy gtk plugin expecting old-style gdk-pixbuf loaders
+        run: mkdir -p /usr/lib/gdk-pixbuf-2.0/2.10.0/loaders
+
       - name: Build Tauri app (AppImage)
         # --verbose: tauri's own summarized "failed to run linuxdeploy"
         # error hides the actual failing subprocess/step (gtk plugin,
