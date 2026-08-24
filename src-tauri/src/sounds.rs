@@ -110,14 +110,26 @@ pub fn delete_sound_file(app: AppHandle, slot: u8) -> Result<(), String> {
     Ok(())
 }
 
-/// Fallback playback path used by the frontend when the webview's own
-/// `<audio>` element fails (`sound-player.ts` calls this from its error
-/// handler, so this normally only ever fires on Linux — see the Cargo.toml
-/// comment on the `rodio` dependency for why). Plays `bytes` directly
-/// through the system's audio device, bypassing WebKitGTK's media stack
-/// entirely. Fire-and-forget: spawns its own thread and returns
-/// immediately, matching the fire-and-forget nature of the JS `Audio.play()`
-/// call it's standing in for.
+/// Tells the frontend whether to route sound playback through
+/// `play_audio_bytes_native` directly instead of ever touching the
+/// webview's own `<audio>` element (`sound-player.ts` calls this once and
+/// caches the result). On Linux this isn't just a quality issue — WebKitGTK's
+/// media pipeline has been observed to abort the entire WebProcess outright
+/// on some builds/environments (not just reject the `.play()` promise,
+/// which `sound-player.ts` could otherwise catch and fall back from), so
+/// the safest thing is to never invoke it there in the first place.
+#[tauri::command]
+pub fn should_use_native_audio() -> bool {
+    cfg!(target_os = "linux")
+}
+
+/// Playback path for `should_use_native_audio() == true` platforms — see
+/// its doc comment for why the webview's own `<audio>` element isn't used
+/// there at all. Plays `bytes` directly through the system's audio
+/// device, bypassing WebKitGTK's media stack entirely. Fire-and-forget:
+/// spawns its own thread and returns immediately, matching the
+/// fire-and-forget nature of the JS `Audio.play()` call it's standing in
+/// for.
 #[tauri::command]
 pub fn play_audio_bytes_native(bytes: Vec<u8>, volume: f32) -> Result<(), String> {
     #[cfg(target_os = "linux")]

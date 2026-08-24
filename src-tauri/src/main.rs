@@ -2359,6 +2359,7 @@ fn main() {
             sounds::import_sound_file,
             sounds::delete_sound_file,
             sounds::play_audio_bytes_native,
+            sounds::should_use_native_audio,
             hotkeys::update_hotkey,
             hotkeys::update_edit_mode_hotkey,
             hotkeys::update_reveal_hidden_hotkey,

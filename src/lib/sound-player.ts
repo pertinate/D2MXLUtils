@@ -17,6 +17,21 @@ import { settingsStore, type SoundSlot } from '../stores/settings.svelte';
 let appDataDirPath: string | null = null;
 let appDataDirPromise: Promise<string> | null = null;
 
+// Checked once and cached — see `should_use_native_audio`'s doc comment
+// (sounds.rs) for why platforms it returns true for skip the `<audio>`
+// element entirely rather than trying it first and falling back on
+// failure: on some Linux/WebKitGTK builds the failure mode isn't a
+// rejected play() promise (which the catch handler below could recover
+// from) but the whole WebProcess aborting outright, taking the page down
+// with it before any JS fallback gets a chance to run.
+let useNativeAudioPromise: Promise<boolean> | null = null;
+function useNativeAudio(): Promise<boolean> {
+  if (!useNativeAudioPromise) {
+    useNativeAudioPromise = invoke<boolean>('should_use_native_audio').catch(() => false);
+  }
+  return useNativeAudioPromise;
+}
+
 // Cache one Audio per (slot index, resolved URL). Invalidated when the
 // resolved URL for an index changes (e.g. slot replaced or reset).
 interface CacheEntry {
@@ -48,12 +63,11 @@ function urlForSlot(slot: SoundSlot, index1: number, dir: string): string | null
 }
 
 /**
- * Native-playback fallback: fetches the same bytes the `<audio>` element
+ * Native-playback path: fetches the same bytes the `<audio>` element
  * would have used and hands them to the Rust backend (`rodio`, talking to
- * ALSA/PulseAudio/PipeWire directly) instead. Used when the webview's own
- * audio element fails outright — observed on some Linux/WebKitGTK setups
- * where `<audio>`/`Audio.play()` reject every format (`MEDIA_ERR_SRC_NOT_SUPPORTED`)
- * even though the system's media stack works fine outside the browser.
+ * ALSA/PulseAudio/PipeWire directly) instead. Used proactively on
+ * platforms `useNativeAudio()` covers (see its comment), and as a
+ * same-tick fallback elsewhere if `<audio>`/`Audio.play()` itself rejects.
  */
 async function playViaNativeFallback(url: string, gain: number): Promise<void> {
   try {
@@ -84,6 +98,11 @@ export async function playSound(index1: number, masterVolume: number): Promise<v
   const dir = await getAppDataDir();
   const url = urlForSlot(slot, index1, dir);
   if (!url) return;
+
+  if (await useNativeAudio()) {
+    void playViaNativeFallback(url, gain);
+    return;
+  }
 
   let entry = cache.get(index1);
   if (!entry || entry.url !== url) {
