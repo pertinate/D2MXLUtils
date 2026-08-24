@@ -11,6 +11,15 @@ on:
   # pipeline builds/uploads correctly, just delete the resulting tag +
   # release afterward.
   workflow_dispatch:
+    inputs:
+      target:
+        description: "Which platform(s) to build"
+        type: choice
+        options:
+          - both
+          - windows
+          - linux
+        default: both
 
 permissions:
   contents: write
@@ -18,6 +27,9 @@ permissions:
 
 jobs:
   build-and-release:
+    # Real tag pushes always build Windows; a manual workflow_dispatch run
+    # only skips it when explicitly testing Linux alone.
+    if: github.event_name != 'workflow_dispatch' || inputs.target == 'both' || inputs.target == 'windows'
     runs-on: windows-latest
     env:
       HUSKY: 0
@@ -103,6 +115,14 @@ jobs:
 
   build-and-release-linux:
     needs: build-and-release
+    # Runs whether the Windows job actually ran or was skipped (testing
+    # Linux alone) — just not if Windows genuinely failed. `always()` is
+    # needed here because a skipped `needs` job otherwise skips this one
+    # too by default.
+    if: |
+      always() &&
+      (needs.build-and-release.result == 'success' || needs.build-and-release.result == 'skipped') &&
+      (github.event_name != 'workflow_dispatch' || inputs.target == 'both' || inputs.target == 'linux')
     runs-on: ubuntu-latest
     # Ubuntu 24.04's (`ubuntu-latest`'s host) apt-packaged webkit2gtk-4.1
     # is several minor versions behind current — bundling it into the
@@ -123,6 +143,10 @@ jobs:
       # notes for the full story. Skipping strip just makes the AppImage
       # a bit larger.
       NO_STRIP: 1
+      # linuxdeploy/appimagetool are themselves AppImages, which need FUSE
+      # to mount — not available in a container without extra privileges.
+      # This makes them extract-and-run instead.
+      APPIMAGE_EXTRACT_AND_RUN: 1
 
     steps:
       # `actions/checkout` needs git, which isn't part of `base-devel`;
