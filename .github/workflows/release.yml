@@ -175,23 +175,6 @@ jobs:
             curl \
             wget
 
-      # DEBUG: tauri-bundler swallows linuxdeploy's actual stderr, only
-      # ever reporting "failed to run linuxdeploy" — run it ourselves
-      # first so the real failure reason lands in this log. Remove once
-      # the AppImage build step is confirmed working.
-      - name: Debug - run linuxdeploy directly
-        run: |
-          curl -Lo /tmp/linuxdeploy-x86_64.AppImage https://github.com/tauri-apps/binary-releases/releases/download/linuxdeploy/linuxdeploy-x86_64.AppImage
-          chmod +x /tmp/linuxdeploy-x86_64.AppImage
-          echo "--- with explicit --appimage-extract-and-run flag ---"
-          /tmp/linuxdeploy-x86_64.AppImage --appimage-extract-and-run --version || echo "EXIT CODE: $?"
-          echo "--- relying only on APPIMAGE_EXTRACT_AND_RUN env var (how tauri actually invokes it) ---"
-          APPIMAGE_EXTRACT_AND_RUN=1 /tmp/linuxdeploy-x86_64.AppImage --version || echo "EXIT CODE: $?"
-          echo "--- the appimage OUTPUT plugin, which is what actually builds the .AppImage and is invoked as a subprocess by linuxdeploy ---"
-          curl -Lo /tmp/linuxdeploy-plugin-appimage-x86_64.AppImage https://github.com/linuxdeploy/linuxdeploy-plugin-appimage/releases/download/continuous/linuxdeploy-plugin-appimage-x86_64.AppImage
-          chmod +x /tmp/linuxdeploy-plugin-appimage-x86_64.AppImage
-          APPIMAGE_EXTRACT_AND_RUN=1 /tmp/linuxdeploy-plugin-appimage-x86_64.AppImage --appimage-version || echo "EXIT CODE: $?"
-
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
 
@@ -208,7 +191,12 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build Tauri app (AppImage)
-        run: pnpm tauri build --target x86_64-unknown-linux-gnu --bundles appimage
+        # --verbose: tauri's own summarized "failed to run linuxdeploy"
+        # error hides the actual failing subprocess/step (gtk plugin,
+        # patchelf, etc.) — verbose mode is what surfaced the real cause
+        # ("Error: patchelf not found") the last time this exact
+        # summarized error showed up, during local debugging.
+        run: pnpm tauri build --target x86_64-unknown-linux-gnu --bundles appimage --verbose
 
       - name: Upload AppImage to GitHub Release
         uses: softprops/action-gh-release@v2
