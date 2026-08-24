@@ -72,13 +72,24 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: D2MXLUtils ${{ github.ref_name }}
+          # `github.ref_name` is only a real version on a tag push; a
+          # `workflow_dispatch` test run fires with a branch name instead,
+          # which `action-gh-release` rejects outright ("requires a tag").
+          # Fall back to a synthetic per-run tag it auto-creates pointing
+          # at the current commit — delete it after testing.
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('manual-{0}', github.run_number) }}
+          name: D2MXLUtils ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('manual test run #{0}', github.run_number) }}
           body_path: CHANGES.md
           files: src-tauri/target/i686-pc-windows-msvc/release/d2mxlutils.exe
           draft: false
           prerelease: false
 
       - name: Commit and push changelog
+        # Only for real tag-triggered releases — a manual workflow_dispatch
+        # test run has no new tag/release notes worth persisting, and
+        # skipping this avoids stray changelog commits on `master` from
+        # test runs.
+        if: startsWith(github.ref, 'refs/tags/')
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
@@ -142,6 +153,10 @@ jobs:
       - name: Upload AppImage to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          # Same tag as the Windows job's release step, so this appends to
+          # the release it just created rather than trying to make a new
+          # one — see that step's comment for why the fallback exists.
+          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('manual-{0}', github.run_number) }}
           files: src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/appimage/*.AppImage
           draft: false
           prerelease: false
