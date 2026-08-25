@@ -14,6 +14,8 @@ name          := '"' regex '"'
 attr          := quality
                | tier
                | socket
+               | level
+               | class
                | 'eth'
                | stat_pattern
                | color
@@ -24,6 +26,10 @@ attr          := quality
                | 'map'
 socket        := 'sockets0' | 'sockets1' | 'sockets2' | 'sockets3'
                | 'sockets4' | 'sockets5' | 'sockets6'
+level         := 'min_clvl' digit+ | 'max_clvl' digit+
+               | 'min_ilvl' digit+ | 'max_ilvl' digit+
+class         := 'amazon' | 'sorceress' | 'necromancer' | 'paladin'
+               | 'barbarian' | 'druid' | 'assassin'
 stat_pattern  := '{' regex '}'
 ```
 
@@ -130,6 +136,50 @@ without the SOCKETED flag set it is treated as `0`.
 
 The notifier also prepends a `Socketed (N)` line to the item's stat blob
 when `N > 0`, so existing stat regexes like `{Socketed \(6\)}` keep working.
+
+---
+
+### Character / Item level
+
+| Keyword | Effect |
+|---|---|
+| `min_clvl<N>` | only match while the player's character level is >= `N` |
+| `max_clvl<N>` | only match while the player's character level is <= `N` |
+| `min_ilvl<N>` | only match items with item level >= `N` |
+| `max_ilvl<N>` | only match items with item level <= `N` |
+
+Each of the four keywords may appear at most once per rule (the last one on
+the line wins, same as `sound`/`color`). Min and max combine as an inclusive
+range: `min_clvl20 max_clvl99` matches character levels 20 through 99.
+Character level is sampled once per scan pass (not per item); item level is
+read directly from the dropped item.
+
+```
+min_ilvl85 unique notify           # only notify uniques with ilvl >= 85
+min_clvl1 max_clvl30 "Ring" notify # only while leveling a fresh character
+```
+
+---
+
+### Character class
+
+| Keyword | Aliases |
+|---|---|
+| `amazon` | `zon` |
+| `sorceress` | `sorc` |
+| `necromancer` | `necro` |
+| `paladin` | `pal`, `pally` |
+| `barbarian` | `barb` |
+| `druid` | `dru` |
+| `assassin` | `sin` |
+
+Multiple class keywords on one rule **OR together** — the rule matches
+while playing any of the listed classes. Read from the player's own
+character, not the dropped item.
+
+```
+necro barb notify {Faster Cast Rate}   # only while playing necro or barb
+```
 
 ---
 
@@ -315,12 +365,14 @@ hide default      # hide unmatched items
 show default      # show unmatched items (implicit default)
 
 # General rule form
-[name-pattern] [quality] [tier] [socket] [eth] [{stat-pattern}]* [color] [show|hide] [sound] [notify] [stat] [map]
+[name-pattern] [quality] [tier] [socket] [level] [class] [eth] [{stat-pattern}]* [color] [show|hide] [sound] [notify] [stat] [map]
 
 # Atoms
 quality    := low | normal | superior | magic | set | rare | unique | craft | honor
 tier       := 0 | 1 | 2 | 3 | 4 | sacred | angelic | master
 socket     := sockets0 | sockets1 | sockets2 | sockets3 | sockets4 | sockets5 | sockets6
+level      := min_clvl<N> | max_clvl<N> | min_ilvl<N> | max_ilvl<N>
+class      := amazon | sorceress | necromancer | paladin | barbarian | druid | assassin
 color      := white | red | lime | blue | gold | grey | black
             | pink | orange | yellow | green | purple
 visibility := show | hide

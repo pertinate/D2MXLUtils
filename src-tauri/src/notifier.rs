@@ -23,7 +23,7 @@ use crate::loot_filter_hook::{visibility_mask_ops, LootFilterHook, VisibilityMas
 #[cfg(any(target_os = "windows", target_os = "linux"))]
 use crate::offsets::{
     d2client, d2common, d2sigma, data_tables, inventory, item_data, item_quality, items_txt, paths,
-    set_items_txt, unique_items_txt, unit, unit_type,
+    set_items_txt, stat_list, unique_items_txt, unit, unit_type,
 };
 #[cfg(any(target_os = "windows", target_os = "linux"))]
 use crate::process::D2Context;
@@ -92,6 +92,17 @@ pub struct ItemDropEvent {
     pub unique_kind: Option<UniqueKind>,
     #[serde(default, skip_serializing_if = "is_zero_u8")]
     pub sockets: u8,
+    /// Character level of the player at the moment this item dropped.
+    /// Sampled once per scan tick (`STAT_LEVEL`), not per item.
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub clvl: u32,
+    /// Item level (`dwItemLevel`), read directly from `ItemData`.
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub ilvl: u32,
+    /// Player's character class id (`UnitAny.class`, 0=Amazon..6=Assassin).
+    /// Sampled once per scan tick, same cadence as `clvl`.
+    #[serde(default, skip_serializing_if = "is_zero_u32")]
+    pub player_class: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub filter: Option<Notification>,
 }
@@ -141,6 +152,12 @@ pub struct DropScanner {
     /// loop into `goblin-detected` events. Same pattern as `last_pickup_updates`.
     last_goblin_events: Vec<GoblinDetectedEvent>,
     debug_get_item_stats_calls: u64,
+    /// Player's character level (`STAT_LEVEL`), refreshed once per
+    /// `tick_items` call rather than per item — see that fn.
+    char_level: u32,
+    /// Player's character class id (`UnitAny.class`), refreshed alongside
+    /// `char_level`.
+    player_class: u32,
 }
 
 #[cfg(any(target_os = "windows", target_os = "linux"))]
@@ -427,6 +444,8 @@ impl DropScanner {
             seen_goblins: HashSet::new(),
             last_goblin_events: Vec::new(),
             debug_get_item_stats_calls: 0,
+            char_level: 0,
+            player_class: 0,
         })
     }
 
@@ -855,6 +874,27 @@ impl DropScanner {
             _ => return events,
         };
 
+        // Sampled once per tick (not per item) — clvl/class don't change
+        // between items in the same scan pass.
+        {
+            let injector = self.state.injector.lock().unwrap();
+            if let Ok(n) = injector.get_unit_stat(
+                &self.state.ctx.process,
+                ptr1 as u32,
+                stat_list::STAT_LEVEL as u32,
+            ) {
+                self.char_level = n;
+            }
+        }
+        if let Ok(class) = self
+            .state
+            .ctx
+            .process
+            .read_memory::<u32>(ptr1 + unit::CLASS)
+        {
+            self.player_class = class;
+        }
+
         let ptr2 = match self
             .state
             .ctx
@@ -1270,6 +1310,9 @@ impl DropScanner {
             tier: self.class_tier(class),
             unique_kind,
             sockets: scanned.sockets,
+            clvl: self.char_level,
+            ilvl: scanned.item_level,
+            player_class: self.player_class,
             filter: None,
         }
     }

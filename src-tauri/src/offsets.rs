@@ -264,7 +264,8 @@ pub mod item_data {
     /// fresh `unit_id`.
     pub const SEED: usize = 0x14; // dword
     pub const FLAGS: usize = 0x18; // dword (item flags) - offset 0 + 4 + 5*4 = 0x18
-    pub const FILE_INDEX: usize = 0x28; // dword (dwFileIndex; 0x2C is item level)
+    pub const FILE_INDEX: usize = 0x28; // dword (dwFileIndex)
+    pub const ITEM_LEVEL: usize = 0x2C; // dword (dwItemLevel)
     pub const BODY_LOCATION: usize = 0x44; // byte (equipped body slot)
     pub const ITEM_LOCATION: usize = 0x45; // byte (inventory/equipment location enum)
     pub const OWNER_INVENTORY: usize = 0x5C; // dword (owning D2InventoryStrc*)
@@ -386,6 +387,10 @@ pub mod stat_list {
     /// Stat ids from `ItemStatCost.txt`.
     pub const STAT_HITPOINTS: u16 = 6;
     pub const STAT_MAXHP: u16 = 7;
+    /// "level" — character/monster level. Already verified live for both
+    /// (see `dps_hook/trampoline.rs`'s monster-level read and
+    /// `docs/dps-meter-scaling-investigation.md`'s player read, both stat 12).
+    pub const STAT_LEVEL: u16 = 12;
 }
 
 /// `D2MonStatsTxt` record offsets. Record size = `0x1A8`; indexing is
