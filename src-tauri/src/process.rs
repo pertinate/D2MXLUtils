@@ -665,6 +665,94 @@ mod linux_impl {
         Err(format!("Window titled '{}' not found", title))
     }
 
+    /// Ask the window manager to activate (raise + focus) the window
+    /// titled `title`, via the standard EWMH `_NET_ACTIVE_WINDOW`
+    /// client-message request (the same mechanism `wmctrl -a` uses) rather
+    /// than an `XSetInputFocus` call directly — going through the WM keeps
+    /// its own stacking/focus bookkeeping consistent, which a raw focus
+    /// call can desync from. Used to hand keyboard focus explicitly back
+    /// to the D2 window when an overlay panel (edit mode / loot history /
+    /// item search) closes, instead of relying on the WM's implicit
+    /// behavior when the overlay unmaps — that implicit behavior isn't
+    /// guaranteed under every focus policy and was the root cause of focus
+    /// visibly "swapping" between the overlay and the game after closing
+    /// a panel.
+    pub fn activate_window_by_title(title: &str) -> Result<(), String> {
+        use x11rb::connection::Connection;
+        use x11rb::protocol::xproto::{
+            AtomEnum, ClientMessageData, ClientMessageEvent, ConnectionExt, EventMask,
+        };
+
+        let (conn, screen_num) = x11_conn()?;
+        let root = conn.setup().roots[screen_num].root;
+
+        let intern = |name: &str| -> Result<u32, String> {
+            Ok(conn
+                .intern_atom(false, name.as_bytes())
+                .map_err(|e| format!("intern_atom({name}) failed: {e}"))?
+                .reply()
+                .map_err(|e| format!("intern_atom({name}) reply failed: {e}"))?
+                .atom)
+        };
+
+        let net_client_list = intern("_NET_CLIENT_LIST")?;
+        let net_wm_name = intern("_NET_WM_NAME")?;
+        let utf8_string = intern("UTF8_STRING")?;
+        let net_active_window = intern("_NET_ACTIVE_WINDOW")?;
+
+        let list_reply = conn
+            .get_property(false, root, net_client_list, AtomEnum::WINDOW, 0, u32::MAX)
+            .map_err(|e| format!("_NET_CLIENT_LIST request failed: {}", e))?
+            .reply()
+            .map_err(|e| format!("_NET_CLIENT_LIST reply failed: {}", e))?;
+
+        let windows: Vec<u32> = list_reply
+            .value32()
+            .map(|it| it.collect())
+            .unwrap_or_default();
+
+        for win in windows {
+            let name = conn
+                .get_property(false, win, net_wm_name, utf8_string, 0, 1024)
+                .ok()
+                .and_then(|c| c.reply().ok())
+                .map(|r| String::from_utf8_lossy(&r.value).into_owned())
+                .filter(|s| !s.is_empty())
+                .or_else(|| {
+                    conn.get_property(false, win, AtomEnum::WM_NAME, AtomEnum::STRING, 0, 1024)
+                        .ok()
+                        .and_then(|c| c.reply().ok())
+                        .map(|r| String::from_utf8_lossy(&r.value).into_owned())
+                });
+
+            if name.as_deref() != Some(title) {
+                continue;
+            }
+
+            // source indication = 1 (normal application), timestamp = 0
+            // (unknown — acceptable per the EWMH spec), requestor's
+            // currently-active window = 0 (unknown/not tracked here).
+            let event = ClientMessageEvent::new(
+                32,
+                win,
+                net_active_window,
+                ClientMessageData::from([1u32, 0, 0, 0, 0]),
+            );
+            conn.send_event(
+                false,
+                root,
+                EventMask::SUBSTRUCTURE_REDIRECT | EventMask::SUBSTRUCTURE_NOTIFY,
+                event,
+            )
+            .map_err(|e| format!("send_event(_NET_ACTIVE_WINDOW) failed: {}", e))?;
+            conn.flush()
+                .map_err(|e| format!("X11 flush failed: {}", e))?;
+            return Ok(());
+        }
+
+        Err(format!("Window titled '{}' not found", title))
+    }
+
     /// Whether the window titled `title` is currently the active/focused
     /// window, via `_NET_ACTIVE_WINDOW` on the root window. Used to hide
     /// the overlay when the user has switched away from the game, rather
@@ -1089,6 +1177,8 @@ mod linux_impl {
     }
 }
 
+#[cfg(target_os = "linux")]
+pub use linux_impl::activate_window_by_title as linux_activate_window_by_title;
 #[cfg(target_os = "linux")]
 pub use linux_impl::find_window_rect_by_title as linux_find_window_rect_by_title;
 #[cfg(target_os = "linux")]

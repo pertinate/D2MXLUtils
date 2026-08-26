@@ -1150,6 +1150,24 @@ fn set_overlay_interactive(
             }
         }
     }
+    // Closing a panel (active -> false) leaves keyboard focus wherever the
+    // overlay panel put it. On Windows, WS_EX_NOACTIVATE means mouse-only
+    // panels never took focus in the first place and the keyboard case is
+    // handled by `force_overlay_foreground`'s counterpart elsewhere; on
+    // Linux there's no such guarantee, and the overlay hiding itself
+    // (`sync_overlay_with_game_impl_linux`) only *implicitly* returns focus
+    // to D2 via the WM's own unmap-focus behavior — not guaranteed under
+    // every focus policy, and was the actual root cause of focus visibly
+    // swapping between the overlay and the game after closing a panel. So
+    // explicitly hand focus back to D2 here instead of hoping the WM does it.
+    #[cfg(target_os = "linux")]
+    if !should_focus && is_diablo2_running() {
+        if let Err(e) =
+            crate::process::linux_activate_window_by_title(crate::process::LINUX_WINDOW_TITLE)
+        {
+            log_error(&format!("Failed to refocus D2 window: {}", e));
+        }
+    }
     Ok(())
 }
 
@@ -1328,6 +1346,26 @@ fn sync_overlay_with_game_impl_linux(app: &AppHandle) -> Result<(), String> {
             // start.
             if let Err(e) = overlay.set_focus() {
                 log_error(&format!("Failed to focus overlay window on reshow: {}", e));
+            }
+        } else if running {
+            // `set_focusable(false)` above is meant to stop the WM from
+            // handing the newly-mapped overlay focus in the first place,
+            // but that's just an advisory ICCCM hint — confirmed live
+            // (KWin) to not be honored reliably at map time, which
+            // reproduces exactly the flicker loop described above: show
+            // steals focus, next tick reads "D2 lost focus", hide,
+            // "D2 focused again", show, repeat — happening right at
+            // launch, before any panel is ever touched. Deterministically
+            // reassert D2 as focused immediately after showing, the same
+            // way `set_overlay_interactive` already does when a panel
+            // closes, instead of trusting the hint alone.
+            if let Err(e) =
+                crate::process::linux_activate_window_by_title(crate::process::LINUX_WINDOW_TITLE)
+            {
+                log_error(&format!(
+                    "Failed to refocus D2 window after showing overlay: {}",
+                    e
+                ));
             }
         }
     }
