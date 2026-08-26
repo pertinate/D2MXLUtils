@@ -9,6 +9,7 @@ mod hotkeys;
 mod hovered_item;
 mod injection;
 mod items_cache;
+mod keystroke_sim;
 mod logger;
 mod loot_filter_hook;
 mod loot_history;
@@ -25,6 +26,7 @@ mod scanner_state;
 mod settings;
 mod sounds;
 mod speedcalc_data;
+mod unique_stats_db;
 mod updater;
 mod weapon_families;
 
@@ -107,7 +109,7 @@ struct AppState {
 
 const GAME_STATUS_UNKNOWN: u8 = 0;
 const GAME_STATUS_INGAME: u8 = 1;
-const GAME_STATUS_MENU: u8 = 2;
+pub(crate) const GAME_STATUS_MENU: u8 = 2;
 
 /// Check if Diablo II window exists
 #[cfg(target_os = "windows")]
@@ -250,8 +252,13 @@ fn start_scanner_internal(
                         return;
                     }
                 };
-                let shared_state =
-                    Arc::new(crate::scanner_state::SharedScannerState::new(ctx, injector));
+                let unique_stats_db = crate::unique_stats_db::load_unique_stats_db(&app_handle)
+                    .unwrap_or_default();
+                let shared_state = Arc::new(crate::scanner_state::SharedScannerState::new(
+                    ctx,
+                    injector,
+                    unique_stats_db,
+                ));
                 let scanner = match DropScanner::new(shared_state.clone(), loot_history.clone()) {
                     Ok(s) => {
                         log_info("Scanner attached to Diablo II");
@@ -2206,6 +2213,8 @@ fn main() {
             #[cfg(not(any(target_os = "windows", target_os = "linux")))]
             let item_search_hotkey_state = ItemSearchHotkeyState::new();
             let dps_meter_reset_state = DpsMeterResetHotkeyState::new();
+            let game_create_autofill_state =
+                hotkeys::GameCreateAutofillHotkeyState::new(game_status.clone());
 
             // Load settings and start hotkey listener
             let app_handle_for_hotkeys = app.handle().clone();
@@ -2235,6 +2244,14 @@ fn main() {
                     if let Some(hk) = loaded_settings.dps_meter.hotkey_reset.clone() {
                         dps_meter_reset_state.start(app_handle_for_dps_reset, hk);
                     }
+                    game_create_autofill_state.start(hotkeys::GameCreateAutofillConfig {
+                        hotkey: loaded_settings.game_create_autofill_hotkey.clone(),
+                        name_prefix: loaded_settings.game_create_name_prefix.clone(),
+                        password: loaded_settings.game_create_password.clone(),
+                        password_prefix: loaded_settings.game_create_password_prefix.clone(),
+                        password_use_prefix: loaded_settings.game_create_password_use_prefix,
+                        description: loaded_settings.game_create_description.clone(),
+                    });
                     verbose_filter_logging
                         .store(loaded_settings.verbose_filter_logging, Ordering::SeqCst);
                     auto_always_show_items
@@ -2253,6 +2270,14 @@ fn main() {
                     item_search_hotkey_state
                         .start(app_handle_for_item_search, defaults.item_search_hotkey);
                     let _ = app_handle_for_dps_reset;
+                    game_create_autofill_state.start(hotkeys::GameCreateAutofillConfig {
+                        hotkey: defaults.game_create_autofill_hotkey,
+                        name_prefix: defaults.game_create_name_prefix,
+                        password: defaults.game_create_password,
+                        password_prefix: defaults.game_create_password_prefix,
+                        password_use_prefix: defaults.game_create_password_use_prefix,
+                        description: defaults.game_create_description,
+                    });
                 }
             }
 
@@ -2262,6 +2287,7 @@ fn main() {
             app.manage(loot_history_hotkey_state);
             app.manage(item_search_hotkey_state);
             app.manage(dps_meter_reset_state);
+            app.manage(game_create_autofill_state);
 
             // Spawn auto-scanner monitor
             let app_handle = app.handle().clone();
@@ -2366,6 +2392,7 @@ fn main() {
             hotkeys::update_loot_history_hotkey,
             hotkeys::update_item_search_hotkey,
             hotkeys::update_dps_meter_reset_hotkey,
+            hotkeys::update_game_create_autofill_hotkey,
             reset_dps_session,
             mxl_item_api::search_mxl_items,
             profiles::list_profiles,

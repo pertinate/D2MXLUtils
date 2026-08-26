@@ -1244,7 +1244,16 @@ impl DropScanner {
                 let cleaned = strip_color_codes(&raw_stats);
                 if !cleaned.trim().is_empty() {
                     let reversed: Vec<&str> = cleaned.lines().rev().collect();
-                    event.stats = Self::format_event_stats(event.sockets, reversed.join("\n"));
+                    let mut stats = Self::format_event_stats(event.sockets, reversed.join("\n"));
+                    if event.quality == "Unique" || event.quality == "Set" {
+                        stats = crate::unique_stats_db::annotate_with_roll_ranges(
+                            &self.state.unique_stats_db,
+                            &event.name,
+                            event.tier,
+                            &stats,
+                        );
+                    }
+                    event.stats = stats;
                     event.runtime_stats_loaded = true;
                 }
             }
