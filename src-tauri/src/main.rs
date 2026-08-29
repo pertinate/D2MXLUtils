@@ -1162,9 +1162,9 @@ fn set_overlay_interactive(
     // explicitly hand focus back to D2 here instead of hoping the WM does it.
     #[cfg(target_os = "linux")]
     if !should_focus && is_diablo2_running() {
-        if let Err(e) =
-            crate::process::linux_activate_window_by_title(crate::process::LINUX_WINDOW_TITLE)
-        {
+        if let Err(e) = crate::process::linux_activate_window_by_title_confirmed(
+            crate::process::LINUX_WINDOW_TITLE,
+        ) {
             log_error(&format!("Failed to refocus D2 window: {}", e));
         }
     }
@@ -1359,9 +1359,9 @@ fn sync_overlay_with_game_impl_linux(app: &AppHandle) -> Result<(), String> {
             // reassert D2 as focused immediately after showing, the same
             // way `set_overlay_interactive` already does when a panel
             // closes, instead of trusting the hint alone.
-            if let Err(e) =
-                crate::process::linux_activate_window_by_title(crate::process::LINUX_WINDOW_TITLE)
-            {
+            if let Err(e) = crate::process::linux_activate_window_by_title_confirmed(
+                crate::process::LINUX_WINDOW_TITLE,
+            ) {
                 log_error(&format!(
                     "Failed to refocus D2 window after showing overlay: {}",
                     e

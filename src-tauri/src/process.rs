@@ -729,14 +729,34 @@ mod linux_impl {
                 continue;
             }
 
-            // source indication = 1 (normal application), timestamp = 0
-            // (unknown — acceptable per the EWMH spec), requestor's
-            // currently-active window = 0 (unknown/not tracked here).
+            // source indication = 2 ("pager/other utility"), not 1
+            // ("application activating its own window"). We're a separate
+            // process handing focus to a *different* application's window
+            // on the user's behalf — the same role a taskbar/pager plays,
+            // not D2 reclaiming itself. This matters in practice, not just
+            // semantically: KWin (confirmed live) applies real
+            // focus-stealing-prevention scrutiny to source=1 requests —
+            // weighed against the requesting app's own recent-user-input
+            // timestamp — which this process has none of, since the user
+            // never actually interacts with it directly. That scrutiny is
+            // lenient with no competing focus history (works right after
+            // launch) but starts silently ignoring the request once real
+            // focus history exists (e.g. after alt-tabbing away and back),
+            // which reproduced as an unrecoverable focus-flip loop: our
+            // "give focus back to D2" request gets dropped, the overlay
+            // (which the WM did auto-focus on map) reads as focused, we
+            // hide it, focus reverts to D2, next tick shows the overlay
+            // again, repeat — until a real user click legitimizes a
+            // request. source=2 is the pager path, which WMs are expected
+            // to honor without that scrutiny — timestamp = 0 (unknown) is
+            // normal for it since pagers don't have a "last user event" of
+            // their own; requestor's currently-active window = 0
+            // (unknown/not tracked here).
             let event = ClientMessageEvent::new(
                 32,
                 win,
                 net_active_window,
-                ClientMessageData::from([1u32, 0, 0, 0, 0]),
+                ClientMessageData::from([2u32, 0, 0, 0, 0]),
             );
             conn.send_event(
                 false,
@@ -751,6 +771,46 @@ mod linux_impl {
         }
 
         Err(format!("Window titled '{}' not found", title))
+    }
+
+    /// Same as `activate_window_by_title`, but re-issues the request a few
+    /// times (with a short sleep) until `is_window_focused_by_title`
+    /// confirms it actually landed, instead of firing once and hoping.
+    ///
+    /// The single-shot version was found to still lose the focus-flicker
+    /// race in practice: `overlay.show()` returning doesn't mean KWin has
+    /// finished mapping/auto-focusing the overlay yet, so an activate call
+    /// placed immediately after can land *before* the WM's own map-time
+    /// focus grab — D2 flashes active, then the overlay steals it right
+    /// back a moment later, and the next poll tick sees D2 unfocused again.
+    /// Retrying for a short window absorbs that ordering race without
+    /// switching the whole sync loop to be event-driven.
+    pub fn activate_window_by_title_confirmed(title: &str) -> Result<(), String> {
+        const MAX_ATTEMPTS: u32 = 6;
+        const RETRY_DELAY: std::time::Duration = std::time::Duration::from_millis(15);
+
+        let mut last_err = None;
+        for attempt in 0..MAX_ATTEMPTS {
+            match activate_window_by_title(title) {
+                Ok(()) => {
+                    std::thread::sleep(RETRY_DELAY);
+                    if is_window_focused_by_title(title).unwrap_or(false) {
+                        return Ok(());
+                    }
+                }
+                Err(e) => {
+                    last_err = Some(e);
+                    std::thread::sleep(RETRY_DELAY);
+                }
+            }
+            let _ = attempt;
+        }
+        Err(last_err.unwrap_or_else(|| {
+            format!(
+                "activate_window_by_title_confirmed: '{}' never confirmed focused after {} attempts",
+                title, MAX_ATTEMPTS
+            )
+        }))
     }
 
     /// Whether the window titled `title` is currently the active/focused
@@ -1179,6 +1239,8 @@ mod linux_impl {
 
 #[cfg(target_os = "linux")]
 pub use linux_impl::activate_window_by_title as linux_activate_window_by_title;
+#[cfg(target_os = "linux")]
+pub use linux_impl::activate_window_by_title_confirmed as linux_activate_window_by_title_confirmed;
 #[cfg(target_os = "linux")]
 pub use linux_impl::find_window_rect_by_title as linux_find_window_rect_by_title;
 #[cfg(target_os = "linux")]
