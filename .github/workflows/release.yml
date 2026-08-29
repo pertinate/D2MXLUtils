@@ -111,7 +111,18 @@ jobs:
           git checkout -- CHANGELOG.md
           mv CHANGELOG.md.new CHANGELOG.md
           git add CHANGELOG.md
-          git diff --staged --quiet || { git commit -m "docs: update CHANGELOG.md" && git push origin master; }
+          if ! git diff --staged --quiet; then
+            git commit -m "docs: update CHANGELOG.md"
+            # master can easily have moved on by now — this step runs after
+            # the full build, ~5-15 min after checkout — so rebase onto
+            # its current tip before pushing instead of just pushing and
+            # letting a non-fast-forward rejection fail the whole job
+            # (confirmed live: exactly this happened once auto-release.yml
+            # started pushing version-bump commits to master more often).
+            git fetch origin master
+            git rebase origin/master
+            git push origin master
+          fi
 
   build-and-release-linux:
     # Runs in parallel with build-and-release (no `needs:` — this job is
