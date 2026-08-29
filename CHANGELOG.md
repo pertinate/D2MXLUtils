@@ -1,5 +1,45 @@
 # Changelog
 
+## v1.26.8 — 2026-08-29
+
+### Bug Fixes
+
+- Fix(ci): discard stray Cargo.toml modification before rebasing changelog (e4cc2db)
+
+### Other
+
+- 1.26.8 (0078112)
+
+## v1.26.7 — 2026-08-29
+
+### Bug Fixes
+
+- Fix(ci): rebase before pushing the changelog commit, don't just push and pray (ef72810)
+
+### Other
+
+- 1.26.7 (7e1cf88)
+
+## v1.26.6 — 2026-08-29
+
+### Bug Fixes
+
+- Fix(ci): explicitly dispatch the release build instead of relying on the tag-push cascade (1b20767)
+
+### Other
+
+- 1.26.6 (ae3d6fd)
+
+## v1.26.5 — 2026-08-29
+
+### Features
+
+- Feat(ci): auto-release on merge to master; build Windows/Linux in parallel (2dd3923)
+
+### Other
+
+- 1.26.5 (156a061)
+
 ## v1.26.4 — 2026-08-29
 
 ### Bug Fixes
