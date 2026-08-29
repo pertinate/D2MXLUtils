@@ -1,5 +1,87 @@
 # Changelog
 
+## v1.26.2 — 2026-08-29
+
+### Other
+
+- 1.26.2 (96c607d)
+
+## v1.26.1 — 2026-08-29
+
+### Bug Fixes
+
+- Fix(updater): point self-updater and releases link at this fork (13c73cc)
+- Fix(ui): dark-mode select popups and tab-content overflow containment (c28a9be)
+- Fix(linux): unconditionally disable WebKitGTK's DMA-BUF renderer (6261605)
+- Fix(overlay): fix focus-stealing prevention after alt-tab on Linux (c769a48)
+- Fix(overlay): explicitly refocus D2 instead of trusting WM implicit behavior (73bdb57)
+
+### Features
+
+- Feat(release): add pnpm release shortcut, defaulting to patch (9161fb7)
+- Feat(dev): add F12 devtools shortcut (557f00f)
+- Feat(loot-filter): add quest filter keyword (c6ed195)
+- Feat: unique/set roll-range annotations and create-game autofill (87c3c43)
+- Feat(loot-filter): add clvl/ilvl and character-class filter keywords (b8358b1)
+
+### Other
+
+- 1.26.1 (0a4d575)
+
+### Refactor
+
+- Refactor(ui): custom Select component replacing native <select> (661cc32)
+
+## manual-19 — 2026-08-24
+
+### Bug Fixes
+
+- Fix(overlay): dedupe notification toasts by unit_id (140b7eb)
+- Fix(sounds): route Linux audio through rodio directly, never <audio> (30c9cbd)
+
+## manual-14 — 2026-08-24
+
+### Bug Fixes
+
+- Fix(ci): stand in an empty gdk-pixbuf loaders dir for linuxdeploy's gtk plugin (6158548)
+- Fix(ci): install gdk-pixbuf2 for linuxdeploy's gtk plugin (331ea55)
+- Fix(ci): install fuse2 for linuxdeploy's AppImage runtime (b352dac)
+
+### CI
+
+- Ci(debug): use --verbose on the real build instead of standalone probes (258e880)
+- Ci(debug): test env-var-only invocation and the appimage output plugin (22eb1ae)
+- Ci(debug): run linuxdeploy directly to surface its real error (1ac0763)
+- Ci: fix linuxdeploy under container (FUSE) + let manual runs pick a platform (3b904fc)
+
+## manual-7 — 2026-08-24
+
+### Bug Fixes
+
+- Fix(ci): build the Linux AppImage inside an Arch container (d276344)
+
+## manual-6 — 2026-08-24
+
+### Bug Fixes
+
+- Fix(ci): install libasound2-dev for rodio's alsa-sys build (ea623af)
+
+## manual-5 — 2026-08-24
+
+### Bug Fixes
+
+- Fix(ci): unescaped # in release name expression broke YAML parsing (49ea451)
+
+### CI
+
+- Ci: fix release step for workflow_dispatch (needs a real tag) (7071a7f)
+- Ci: allow manual test runs via workflow_dispatch (629d125)
+- Ci: add Linux AppImage build/release job (1a4566c)
+
+### Features
+
+- Feat(linux): native Linux port (process attach, injection, overlay, hotkeys) (aeff831)
+
 ## v1.26.0 — 2026-05-17
 
 ### Bug Fixes
@@ -394,26 +476,11 @@
 
 - Fix(filter): auto-load active profile on startup (0e5b82e)
 - Fix(notifier): label low-wLvl TU uniques (e.g. Razordisk) correctly (d9b6904)
-
-### Features
-
-- Feat(updater): add GitHub Releases auto-updater (b872d31)
-- Feat(filter): highlight matched stat line in drop notifications (5b198b3)
-- Feat(sound): play drop notification sounds with master volume (b821569)
-- Feat(notifications): improve drop rendering and settings preview (de19ced)
-
-### Other
-
-- 1.7.0 (bf38bce)
-
-## v1.6.0 — 2026-04-21
-
-### Bug Fixes
-
 - Fix(ui): sync header version with package.json at build time (79741a8)
 - Eliminate loot-filter label flicker on fresh drops (bff0c0d)
 - Fix reattach bug (37374c0)
 - Survive project restart without re-launching Diablo II (4f3ed6d)
+- Fix loot filter not syncing to scanner after profile load/save (d8dacab)
 
 ### CI
 
@@ -425,29 +492,17 @@
 - Move drop notifications to top-left and hide overlay window border (c0be59c)
 - Redesign drop notification layout and drop the `name` filter flag (b67fd52)
 - Normalize autocomplete dictionary and version the items cache (12ae0fb)
-
-### Features
-
-- Add hold-hotkey overlay editor to reposition drop notifications (7a645a8)
-- Add uniques and set items to autocomplete dictionary (863a50f)
-- Add items autocomplete to loot-filter rules editor (00c7341)
-
-### Other
-
-- 1.6.0 (f5dadfc)
-
-## v1.5.0 — 2026-04-19
-
-### Bug Fixes
-
-- Fix loot filter not syncing to scanner after profile load/save (d8dacab)
-
-### Changes
-
 - Removed docs (313fcfb)
 
 ### Features
 
+- Feat(updater): add GitHub Releases auto-updater (b872d31)
+- Feat(filter): highlight matched stat line in drop notifications (5b198b3)
+- Feat(sound): play drop notification sounds with master volume (b821569)
+- Feat(notifications): improve drop rendering and settings preview (de19ced)
+- Add hold-hotkey overlay editor to reposition drop notifications (7a645a8)
+- Add uniques and set items to autocomplete dictionary (863a50f)
+- Add items autocomplete to loot-filter rules editor (00c7341)
 - Support multi-quality/tier OR-matching and base_name regex (915f96a)
 - Implement MedianXL tier detection (C2 fix) (bea784d)
 - Add force-show filter mode and reduce scanner overhead (a476716)
@@ -457,6 +512,8 @@
 
 ### Other
 
+- 1.7.0 (bf38bce)
+- 1.6.0 (f5dadfc)
 - Sync pnpm-lock.yaml with package.json (7d43ef3)
 - 1.5.0 (33a5355)
 - New spec (6c9b497)
