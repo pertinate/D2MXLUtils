@@ -616,7 +616,7 @@ dependencies = [
 
 [[package]]
 name = "d2mxlutils"
-version = "1.26.0"
+version = "1.26.1"
 dependencies = [
  "chrono",
  "http",
