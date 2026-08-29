@@ -1,8 +1,15 @@
 //! Automap markers for loot-filter matches.
 //!
-//! Allocates `AutomapCell`s via `D2Injector::new_automap_cell` and prepends
-//! our chain at the root of the layer's `pObjects` BST. Engine-owned icons
-//! (quests, waypoints) stay intact, linked below our tail.
+//! Allocates `AutomapCell`s via `D2Injector::new_automap_cell` and attaches
+//! our chain as a leaf of the layer's `pObjects` BST — walk `pLess` from
+//! the root until a NULL slot, attach there, exactly like the engine's own
+//! icon insertion. Earlier versions instead swapped `pObjects` itself to
+//! point at a freshly-prepended chain; that's the single most contended
+//! slot in the structure (the engine's own quest/shrine-icon placement
+//! also reads/writes it), and repeatedly rewriting it every rebuild is the
+//! prime suspect for reports of quest/shrine markers occasionally going
+//! missing. Leaf insertion never touches the root, so engine-owned icons
+//! are never at risk of being swapped out from under it.
 //!
 //! A per-area `persistent` cache keeps markers sticky when the player walks
 //! past an item and its room unloads. Entries are evicted either when BFS
@@ -47,11 +54,14 @@ pub const MARKER_TTL: Duration = Duration::from_secs(20 * 60);
 
 pub struct MapMarkerManager {
     last_layer: u32,
-    /// Remote address of the slot whose value = our chain head. Always
-    /// `layer + P_OBJECTS` (we prepend at root); zero when not attached.
+    /// Remote address of the slot whose value = our chain head — the
+    /// `pLess` field of whatever existing leaf we attached under (or
+    /// `layer + P_OBJECTS` itself, only when the tree was empty). Never
+    /// rewritten to point elsewhere once picked; zero when not attached.
     chain_parent_slot: u32,
     /// Cells we've allocated, in chain order. `placed[0]` is the head; the
-    /// last cell's `pLess` points at the engine's original tree.
+    /// last cell's `pLess` is 0 — we're a genuine leaf chain, not a splice
+    /// back into the engine's tree (see `attach_chain`).
     placed: Vec<u32>,
     last_hash: u64,
     persistent: HashMap<u32, MarkerItem>,
@@ -117,8 +127,9 @@ impl MapMarkerManager {
             self.last_layer = layer;
         }
 
-        // Tamper check: if `pObjects` no longer points at our head, the
-        // engine or MXL overwrote us and our chain is orphaned. Force
+        // Tamper check: if the slot we attached under (root or some
+        // existing leaf's pLess) no longer points at our head, the engine
+        // or MXL wrote through/past us and our chain is orphaned. Force
         // rebuild.
         if self.chain_parent_slot != 0 {
             if let Some(&head) = self.placed.first() {
@@ -167,8 +178,12 @@ impl MapMarkerManager {
         Ok(())
     }
 
-    /// Restore `pObjects` to whatever our tail was linking to (= engine's
-    /// tree). No-op if we aren't actually at root (someone replaced us).
+    /// Clear whatever leaf slot we attached under back to NULL. Since our
+    /// chain is a genuine leaf (tail's `pLess` is 0, not spliced back into
+    /// anything), this can never disconnect engine-owned nodes — unlike an
+    /// earlier root-swap design, detaching us never touches the engine's
+    /// own tree structure. No-op if someone else already overwrote the
+    /// slot (tamper case, already handled by the caller).
     fn detach_chain(&mut self, ctx: &D2Context) -> Result<(), String> {
         if self.chain_parent_slot == 0 || self.placed.is_empty() {
             self.chain_parent_slot = 0;
@@ -180,22 +195,27 @@ impl MapMarkerManager {
             .read_memory::<u32>(self.chain_parent_slot as usize)
             .unwrap_or(0);
         if current == self.placed[0] {
-            let tail = *self.placed.last().unwrap();
-            let tail_pless = ctx
-                .process
-                .read_memory::<u32>((tail + automap_cell::P_LESS as u32) as usize)
-                .unwrap_or(0);
             ctx.process
-                .write_buffer(self.chain_parent_slot as usize, &tail_pless.to_le_bytes())?;
+                .write_buffer(self.chain_parent_slot as usize, &0u32.to_le_bytes())?;
         }
         self.chain_parent_slot = 0;
         self.placed.clear();
         Ok(())
     }
 
-    /// Allocate cells for `wanted` and prepend them at `pObjects` root.
-    /// Our tail's `pLess` points at the engine's previous root so existing
-    /// quest/waypoint icons stay alive.
+    /// Allocate cells for `wanted` and attach them as a leaf hanging off
+    /// the existing `pObjects` tree, per the engine's own verified
+    /// insertion algorithm (walk `pLess` from the root until a NULL slot,
+    /// attach there — "order is irrelevant, the renderer walks the entire
+    /// tree"; see the map-marker RE notes). Earlier versions of this
+    /// instead swapped `pObjects` itself to point at our new head — the
+    /// single most contended slot in the structure, since the engine's own
+    /// quest/shrine-icon insertion also reads/writes it — which is the
+    /// prime suspect for those markers occasionally going missing. Leaf
+    /// insertion touches only one `pLess` field deep in the tree, the same
+    /// kind of write the engine's own insertion makes, so we're
+    /// indistinguishable from one more native icon rather than a
+    /// structural rewrite of the root every rebuild.
     fn attach_chain(
         &mut self,
         ctx: &D2Context,
@@ -204,10 +224,6 @@ impl MapMarkerManager {
         wanted: &[MarkerItem],
     ) -> Result<(), String> {
         let objects_slot = layer + automap_layer::P_OBJECTS as u32;
-        let old_root = ctx
-            .process
-            .read_memory::<u32>(objects_slot as usize)
-            .unwrap_or(0);
 
         let mut cells: Vec<u32> = Vec::with_capacity(wanted.len());
         for item in wanted {
@@ -219,20 +235,20 @@ impl MapMarkerManager {
             cells.push(cell);
         }
 
-        for i in 0..cells.len() {
-            let next = if i + 1 < cells.len() {
-                cells[i + 1]
-            } else {
-                old_root
-            };
+        // Chain our own cells together; the tail stays a real leaf
+        // (pLess = 0, already zeroed by write_cell_fields) rather than
+        // splicing back into the engine's tree.
+        for i in 0..cells.len().saturating_sub(1) {
             let pless_slot = (cells[i] + automap_cell::P_LESS as u32) as usize;
-            ctx.process.write_buffer(pless_slot, &next.to_le_bytes())?;
+            ctx.process
+                .write_buffer(pless_slot, &cells[i + 1].to_le_bytes())?;
         }
 
+        let attach_slot = find_leaf_slot(ctx, objects_slot)?;
         ctx.process
-            .write_buffer(objects_slot as usize, &cells[0].to_le_bytes())?;
+            .write_buffer(attach_slot as usize, &cells[0].to_le_bytes())?;
 
-        self.chain_parent_slot = objects_slot;
+        self.chain_parent_slot = attach_slot;
         self.placed = cells;
         Ok(())
     }
@@ -421,6 +437,25 @@ pub fn sub_to_cell(sub_x: i32, sub_y: i32) -> (i32, i32) {
 }
 
 // ---------- internal helpers ----------
+
+/// Walk `pLess` from `root_slot` (either `layer + P_OBJECTS` itself, or
+/// some existing cell's `pLess` field) until finding a NULL child slot,
+/// returning that slot's address — matches the engine's own documented
+/// insertion algorithm exactly, so our cells land wherever the engine's
+/// own icon insertion would have put a new leaf. Bounded to guard against
+/// a corrupted/cyclic tree; matches the depth bound style used by the BFS
+/// scanner elsewhere in this module.
+fn find_leaf_slot(ctx: &D2Context, root_slot: u32) -> Result<u32, String> {
+    let mut slot = root_slot;
+    for _ in 0..4096 {
+        let node = ctx.process.read_memory::<u32>(slot as usize).unwrap_or(0);
+        if node == 0 {
+            return Ok(slot);
+        }
+        slot = node + automap_cell::P_LESS as u32;
+    }
+    Err("find_leaf_slot: pObjects tree exceeds depth bound (corrupted?)".to_string())
+}
 
 fn read_layer(ctx: &D2Context) -> Result<u32, String> {
     ctx.process
