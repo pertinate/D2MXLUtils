@@ -108,7 +108,13 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout master
           cp CHANGELOG.md CHANGELOG.md.new
-          git checkout -- CHANGELOG.md
+          # Discard everything else too, not just CHANGELOG.md — `pnpm
+          # tauri build` above leaves src-tauri/Cargo.toml modified in the
+          # working tree as a side effect, and that stray change (a) has
+          # no business landing in a "docs: update CHANGELOG.md" commit
+          # and (b) confirmed live to make `git rebase` below refuse to
+          # run at all ("cannot rebase: you have unstaged changes").
+          git checkout -- .
           mv CHANGELOG.md.new CHANGELOG.md
           git add CHANGELOG.md
           if ! git diff --staged --quiet; then
