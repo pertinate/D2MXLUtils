@@ -62,14 +62,18 @@ Tauri packaging/bundling is configured under `src-tauri`; refer to Tauri docs an
 To create a new release:
 
 ```bash
-# Bump version (choose one):
-pnpm version patch   # 0.1.0 → 0.1.1 (bugfixes)
-pnpm version minor   # 0.1.0 → 0.2.0 (new features)
-pnpm version major   # 0.1.0 → 1.0.0 (breaking changes)
+# Bump version (defaults to patch):
+pnpm release          # 0.1.0 → 0.1.1 (bugfixes)
+pnpm release minor    # 0.1.0 → 0.2.0 (new features)
+pnpm release major    # 0.1.0 → 1.0.0 (breaking changes)
 
 # Push with tag:
 git push --follow-tags
 ```
+
+`pnpm release` is a thin wrapper around `pnpm version <bump>` (still works
+directly if preferred) — it doesn't push on its own, since pushing the tag
+is what triggers the real CI release build.
 
 This will:
 1. Update version in `package.json`, `Cargo.toml`, `Cargo.lock`, and `tauri.conf.json`

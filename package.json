@@ -14,6 +14,7 @@
     "format:all": "pnpm format && pnpm format:rust",
     "preview": "vite preview",
     "prepare": "husky",
+    "release": "node scripts/release.mjs",
     "tauri": "tauri",
     "version": "node scripts/sync-version.mjs"
   },
