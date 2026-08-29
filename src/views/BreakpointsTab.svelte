@@ -2,6 +2,7 @@
   import { invoke } from '@tauri-apps/api/core';
   import { listen, type UnlistenFn } from '@tauri-apps/api/event';
   import { onMount } from 'svelte';
+  import { Select } from '../components';
   import {
     CLASSES,
     MORPHS,
@@ -354,91 +355,77 @@
       {#if activeEntity === 'player'}
         <label>
           <span class="label">Class</span>
-          <select
+          <Select
             value={overrideClass ?? livePlayer?.class ?? 0}
-            onchange={(e) => {
-              overrideClass = parseInt(e.currentTarget.value);
+            options={CLASSES.map((cls, i) => ({ value: i, label: cls.name }))}
+            onchange={(v) => {
+              overrideClass = v;
             }}
-          >
-            {#each CLASSES as cls, i}
-              <option value={i}>{cls.name}</option>
-            {/each}
-          </select>
+          />
         </label>
 
         <label>
           <span class="label">Morph</span>
-          <select
+          <Select
             value={overrideMorph ?? ''}
-            onchange={(e) => {
-              overrideMorph = e.currentTarget.value || null;
+            options={[
+              { value: '', label: 'None' },
+              ...MORPHS.map((morph) => ({ value: morph.token, label: morph.name })),
+            ]}
+            onchange={(v) => {
+              overrideMorph = v || null;
             }}
-          >
-            <option value="">None</option>
-            {#each MORPHS as morph}
-              <option value={morph.token}>{morph.name}</option>
-            {/each}
-          </select>
+          />
         </label>
       {:else}
         <label>
           <span class="label">Mercenary</span>
-          <select
+          <Select
             value={overrideMercType ?? liveMerc?.merc_type ?? 0}
-            onchange={(e) => {
-              overrideMercType = parseInt(e.currentTarget.value);
+            options={MERCS.map((merc) => ({ value: merc.id, label: merc.name }))}
+            onchange={(v) => {
+              overrideMercType = v;
             }}
-          >
-            {#each MERCS as merc}
-              <option value={merc.id}>{merc.name}</option>
-            {/each}
-          </select>
+          />
         </label>
       {/if}
 
       <label>
         <span class="label">Weapon Type</span>
-        <select
+        <Select
           value={effectiveWeaponToken}
-          onchange={(e) => setWeaponTypeOverride(e.currentTarget.value)}
-        >
-          {#each availableWeapons as wt}
-            <option value={wt.token}>{wt.name}</option>
-          {/each}
-        </select>
+          options={availableWeapons.map((wt) => ({ value: wt.token, label: wt.name }))}
+          onchange={(v) => setWeaponTypeOverride(v)}
+        />
       </label>
 
       {#if availableBases.length > 0}
         <label>
           <span class="label">Weapon Base</span>
-          <select
+          <Select
             value={effectiveBase?.file_index ?? -1}
-            onchange={(e) => setBaseOverride(parseInt(e.currentTarget.value))}
-          >
-            {#each availableBases as base (base.file_index)}
-              <option value={base.file_index}>{base.name}</option>
-            {/each}
-          </select>
+            options={availableBases.map((base) => ({ value: base.file_index, label: base.name }))}
+            onchange={(v) => setBaseOverride(v)}
+          />
         </label>
       {/if}
 
       <label>
         <span class="label">Debuff</span>
-        <select
+        <Select
           value={activeEntity === 'player' ? debuffIndex : mercDebuffIndex}
-          onchange={(e) => {
-            const val = parseInt(e.currentTarget.value);
+          options={DEBUFFS.map((debuff, i) => ({
+            value: i,
+            label: `${debuff.name} (${debuff.value})`,
+          }))}
+          onchange={(v) => {
             if (activeEntity === 'player') {
-              debuffIndex = val;
+              debuffIndex = v;
             } else {
-              mercDebuffIndex = val;
+              mercDebuffIndex = v;
             }
           }}
-        >
-          {#each DEBUFFS as debuff, i}
-            <option value={i}>{debuff.name} ({debuff.value})</option>
-          {/each}
-        </select>
+        />
       </label>
     </div>
 
@@ -643,7 +630,6 @@
     letter-spacing: 0.5px;
   }
 
-  .control-row select,
   .control-row input[type='number'] {
     padding: var(--space-1) var(--space-2);
     background: var(--bg-primary);
@@ -653,6 +639,13 @@
     font-size: var(--text-sm);
     font-family: var(--font-mono);
     min-width: 80px;
+  }
+
+  /* Select's own defaults already match the input styling above
+     (padding/background/border/color/font-size/min-width) — pierce its
+     scoped styles just for the monospace font this row uses. */
+  .control-row :global(.select-trigger) {
+    font-family: var(--font-mono);
   }
 
   .control-row input[type='number'] {

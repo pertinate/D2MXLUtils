@@ -74,10 +74,19 @@ pub struct SharedScannerState {
     /// (first read records, doesn't reset). `i64` so any 32-bit pointer
     /// value (incl. 0) round-trips losslessly.
     pub last_area_token: AtomicI64,
+    /// Local unique/set roll-range template DB — see `unique_stats_db.rs`.
+    /// Empty (not an `Option`) when no local DB file was found, so lookups
+    /// are just always-miss rather than needing an extra `is_some` check
+    /// at every call site.
+    pub unique_stats_db: crate::unique_stats_db::UniqueStatsDb,
 }
 
 impl SharedScannerState {
-    pub fn new(ctx: D2Context, injector: D2Injector) -> Self {
+    pub fn new(
+        ctx: D2Context,
+        injector: D2Injector,
+        unique_stats_db: crate::unique_stats_db::UniqueStatsDb,
+    ) -> Self {
         Self {
             ctx: Arc::new(ctx),
             injector: Arc::new(Mutex::new(injector)),
@@ -94,6 +103,7 @@ impl SharedScannerState {
             hovered_item_hook: Arc::new(HoveredItemHook::new()),
             dps_meter: Arc::new(RwLock::new(DpsMeter::new())),
             last_area_token: AtomicI64::new(-1),
+            unique_stats_db,
         }
     }
 

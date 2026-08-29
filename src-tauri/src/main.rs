@@ -9,6 +9,7 @@ mod hotkeys;
 mod hovered_item;
 mod injection;
 mod items_cache;
+mod keystroke_sim;
 mod logger;
 mod loot_filter_hook;
 mod loot_history;
@@ -25,6 +26,7 @@ mod scanner_state;
 mod settings;
 mod sounds;
 mod speedcalc_data;
+mod unique_stats_db;
 mod updater;
 mod weapon_families;
 
@@ -107,7 +109,7 @@ struct AppState {
 
 const GAME_STATUS_UNKNOWN: u8 = 0;
 const GAME_STATUS_INGAME: u8 = 1;
-const GAME_STATUS_MENU: u8 = 2;
+pub(crate) const GAME_STATUS_MENU: u8 = 2;
 
 /// Check if Diablo II window exists
 #[cfg(target_os = "windows")]
@@ -250,8 +252,13 @@ fn start_scanner_internal(
                         return;
                     }
                 };
-                let shared_state =
-                    Arc::new(crate::scanner_state::SharedScannerState::new(ctx, injector));
+                let unique_stats_db = crate::unique_stats_db::load_unique_stats_db(&app_handle)
+                    .unwrap_or_default();
+                let shared_state = Arc::new(crate::scanner_state::SharedScannerState::new(
+                    ctx,
+                    injector,
+                    unique_stats_db,
+                ));
                 let scanner = match DropScanner::new(shared_state.clone(), loot_history.clone()) {
                     Ok(s) => {
                         log_info("Scanner attached to Diablo II");
@@ -977,6 +984,20 @@ fn set_filter_config(
     Ok(())
 }
 
+/// Opens the WebKit/WebView2 inspector for the calling window. Right-click's
+/// native context menu is suppressed app-wide (see App.svelte) except inside
+/// inputs/the rules editor, so this is the only way to reach devtools during
+/// development. Debug-only: `devtools` is a real Cargo feature gate in
+/// Tauri v2 (unlike v1, not automatic for debug builds), and `open_devtools`
+/// only exists on the type when that feature is enabled.
+#[tauri::command]
+fn open_devtools(window: tauri::WebviewWindow) {
+    #[cfg(debug_assertions)]
+    window.open_devtools();
+    #[cfg(not(debug_assertions))]
+    let _ = window;
+}
+
 /// Enable or disable the per-item `[Filter] ...` log line.
 #[tauri::command]
 fn set_verbose_filter_logging(enabled: bool, state: tauri::State<AppState>) {
@@ -1141,6 +1162,24 @@ fn set_overlay_interactive(
             if let Err(e) = overlay.set_focus() {
                 log_error(&format!("Failed to focus overlay window: {}", e));
             }
+        }
+    }
+    // Closing a panel (active -> false) leaves keyboard focus wherever the
+    // overlay panel put it. On Windows, WS_EX_NOACTIVATE means mouse-only
+    // panels never took focus in the first place and the keyboard case is
+    // handled by `force_overlay_foreground`'s counterpart elsewhere; on
+    // Linux there's no such guarantee, and the overlay hiding itself
+    // (`sync_overlay_with_game_impl_linux`) only *implicitly* returns focus
+    // to D2 via the WM's own unmap-focus behavior — not guaranteed under
+    // every focus policy, and was the actual root cause of focus visibly
+    // swapping between the overlay and the game after closing a panel. So
+    // explicitly hand focus back to D2 here instead of hoping the WM does it.
+    #[cfg(target_os = "linux")]
+    if !should_focus && is_diablo2_running() {
+        if let Err(e) = crate::process::linux_activate_window_by_title_confirmed(
+            crate::process::LINUX_WINDOW_TITLE,
+        ) {
+            log_error(&format!("Failed to refocus D2 window: {}", e));
         }
     }
     Ok(())
@@ -1321,6 +1360,26 @@ fn sync_overlay_with_game_impl_linux(app: &AppHandle) -> Result<(), String> {
             // start.
             if let Err(e) = overlay.set_focus() {
                 log_error(&format!("Failed to focus overlay window on reshow: {}", e));
+            }
+        } else if running {
+            // `set_focusable(false)` above is meant to stop the WM from
+            // handing the newly-mapped overlay focus in the first place,
+            // but that's just an advisory ICCCM hint — confirmed live
+            // (KWin) to not be honored reliably at map time, which
+            // reproduces exactly the flicker loop described above: show
+            // steals focus, next tick reads "D2 lost focus", hide,
+            // "D2 focused again", show, repeat — happening right at
+            // launch, before any panel is ever touched. Deterministically
+            // reassert D2 as focused immediately after showing, the same
+            // way `set_overlay_interactive` already does when a panel
+            // closes, instead of trusting the hint alone.
+            if let Err(e) = crate::process::linux_activate_window_by_title_confirmed(
+                crate::process::LINUX_WINDOW_TITLE,
+            ) {
+                log_error(&format!(
+                    "Failed to refocus D2 window after showing overlay: {}",
+                    e
+                ));
             }
         }
     }
@@ -2108,6 +2167,19 @@ fn main() {
         std::env::set_var("GDK_BACKEND", "x11");
     }
 
+    // NVIDIA's proprietary driver has long had incomplete/buggy DMA-BUF
+    // export support, which is what WebKitGTK's hardware compositing path
+    // relies on. On affected setups (confirmed: NVIDIA + Wayland session,
+    // even with GDK_BACKEND forced to x11 above) this doesn't crash or log
+    // anything from WebKit — the window just paints its background and
+    // never draws page content, i.e. a silent white screen. This is a
+    // lightweight overlay UI, not a GPU-heavy page, so there's no real
+    // cost to disabling the DMA-BUF renderer unconditionally.
+    #[cfg(target_os = "linux")]
+    if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
+        std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+    }
+
     // Enable SeDebugPrivilege so OpenProcess has the same behavior as legacy tools.
     enable_debug_privilege();
 
@@ -2206,6 +2278,8 @@ fn main() {
             #[cfg(not(any(target_os = "windows", target_os = "linux")))]
             let item_search_hotkey_state = ItemSearchHotkeyState::new();
             let dps_meter_reset_state = DpsMeterResetHotkeyState::new();
+            let game_create_autofill_state =
+                hotkeys::GameCreateAutofillHotkeyState::new(game_status.clone());
 
             // Load settings and start hotkey listener
             let app_handle_for_hotkeys = app.handle().clone();
@@ -2235,6 +2309,14 @@ fn main() {
                     if let Some(hk) = loaded_settings.dps_meter.hotkey_reset.clone() {
                         dps_meter_reset_state.start(app_handle_for_dps_reset, hk);
                     }
+                    game_create_autofill_state.start(hotkeys::GameCreateAutofillConfig {
+                        hotkey: loaded_settings.game_create_autofill_hotkey.clone(),
+                        name_prefix: loaded_settings.game_create_name_prefix.clone(),
+                        password: loaded_settings.game_create_password.clone(),
+                        password_prefix: loaded_settings.game_create_password_prefix.clone(),
+                        password_use_prefix: loaded_settings.game_create_password_use_prefix,
+                        description: loaded_settings.game_create_description.clone(),
+                    });
                     verbose_filter_logging
                         .store(loaded_settings.verbose_filter_logging, Ordering::SeqCst);
                     auto_always_show_items
@@ -2253,6 +2335,14 @@ fn main() {
                     item_search_hotkey_state
                         .start(app_handle_for_item_search, defaults.item_search_hotkey);
                     let _ = app_handle_for_dps_reset;
+                    game_create_autofill_state.start(hotkeys::GameCreateAutofillConfig {
+                        hotkey: defaults.game_create_autofill_hotkey,
+                        name_prefix: defaults.game_create_name_prefix,
+                        password: defaults.game_create_password,
+                        password_prefix: defaults.game_create_password_prefix,
+                        password_use_prefix: defaults.game_create_password_use_prefix,
+                        description: defaults.game_create_description,
+                    });
                 }
             }
 
@@ -2262,6 +2352,7 @@ fn main() {
             app.manage(loot_history_hotkey_state);
             app.manage(item_search_hotkey_state);
             app.manage(dps_meter_reset_state);
+            app.manage(game_create_autofill_state);
 
             // Spawn auto-scanner monitor
             let app_handle = app.handle().clone();
@@ -2332,6 +2423,7 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            open_devtools,
             get_scanner_status,
             get_game_status,
             get_items_dictionary,
@@ -2366,6 +2458,7 @@ fn main() {
             hotkeys::update_loot_history_hotkey,
             hotkeys::update_item_search_hotkey,
             hotkeys::update_dps_meter_reset_hotkey,
+            hotkeys::update_game_create_autofill_hotkey,
             reset_dps_session,
             mxl_item_api::search_mxl_items,
             profiles::list_profiles,

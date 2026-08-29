@@ -105,6 +105,52 @@ impl ItemTier {
     }
 }
 
+/// Character class of the player currently in-game. Matched against
+/// `UnitAny.class` (offset `unit::CLASS`) read from the player's own unit —
+/// the same struct field D2 reuses for item file-index on item units.
+/// Ids empirically confirmed live: `2` = Necromancer, matching the standard
+/// D2 class ordering (Amazon, Sorceress, Necromancer, Paladin, Barbarian,
+/// Druid, Assassin) used by the `.d2s` save format.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PlayerClass {
+    Amazon,
+    Sorceress,
+    Necromancer,
+    Paladin,
+    Barbarian,
+    Druid,
+    Assassin,
+}
+
+impl PlayerClass {
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "amazon" | "zon" => Some(Self::Amazon),
+            "sorceress" | "sorc" => Some(Self::Sorceress),
+            "necromancer" | "necro" => Some(Self::Necromancer),
+            "paladin" | "pal" | "pally" => Some(Self::Paladin),
+            "barbarian" | "barb" => Some(Self::Barbarian),
+            "druid" | "dru" => Some(Self::Druid),
+            "assassin" | "sin" => Some(Self::Assassin),
+            _ => None,
+        }
+    }
+
+    pub fn from_id(id: u32) -> Option<Self> {
+        match id {
+            0 => Some(Self::Amazon),
+            1 => Some(Self::Sorceress),
+            2 => Some(Self::Necromancer),
+            3 => Some(Self::Paladin),
+            4 => Some(Self::Barbarian),
+            5 => Some(Self::Druid),
+            6 => Some(Self::Assassin),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum NotifyColor {
@@ -225,8 +271,30 @@ pub struct Rule {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sockets: Vec<u8>,
 
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub classes: Vec<PlayerClass>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_clvl: Option<u32>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_clvl: Option<u32>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_ilvl: Option<u32>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_ilvl: Option<u32>,
+
     #[serde(default, skip_serializing_if = "is_false")]
     pub ethereal: bool,
+
+    /// Matched against `base_name`/`category` (Median XL's "Quest Item"
+    /// items.txt type), the same mechanism the default profile already
+    /// used for its `"Quest Item|Cube Reagent"` name-pattern rule — not a
+    /// separate memory-read flag.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub quest: bool,
 
     #[serde(default, skip_serializing_if = "is_default_visibility")]
     pub visibility: Visibility,
@@ -488,6 +556,9 @@ mod tests {
             tier: None,
             unique_kind: None,
             sockets: 0,
+            clvl: 0,
+            ilvl: 0,
+            player_class: 0,
             filter: None,
         }
     }

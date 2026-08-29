@@ -25,7 +25,7 @@ use http::header::{HeaderValue, ACCEPT};
 
 use crate::logger::{error as log_error, info as log_info};
 
-const REPO_OWNER: &str = "synonymouse";
+const REPO_OWNER: &str = "pertinate";
 const REPO_NAME: &str = "D2MXLUtils";
 const ASSET_NAME: &str = "d2mxlutils.exe";
 

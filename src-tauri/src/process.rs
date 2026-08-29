@@ -665,6 +665,154 @@ mod linux_impl {
         Err(format!("Window titled '{}' not found", title))
     }
 
+    /// Ask the window manager to activate (raise + focus) the window
+    /// titled `title`, via the standard EWMH `_NET_ACTIVE_WINDOW`
+    /// client-message request (the same mechanism `wmctrl -a` uses) rather
+    /// than an `XSetInputFocus` call directly — going through the WM keeps
+    /// its own stacking/focus bookkeeping consistent, which a raw focus
+    /// call can desync from. Used to hand keyboard focus explicitly back
+    /// to the D2 window when an overlay panel (edit mode / loot history /
+    /// item search) closes, instead of relying on the WM's implicit
+    /// behavior when the overlay unmaps — that implicit behavior isn't
+    /// guaranteed under every focus policy and was the root cause of focus
+    /// visibly "swapping" between the overlay and the game after closing
+    /// a panel.
+    pub fn activate_window_by_title(title: &str) -> Result<(), String> {
+        use x11rb::connection::Connection;
+        use x11rb::protocol::xproto::{
+            AtomEnum, ClientMessageData, ClientMessageEvent, ConnectionExt, EventMask,
+        };
+
+        let (conn, screen_num) = x11_conn()?;
+        let root = conn.setup().roots[screen_num].root;
+
+        let intern = |name: &str| -> Result<u32, String> {
+            Ok(conn
+                .intern_atom(false, name.as_bytes())
+                .map_err(|e| format!("intern_atom({name}) failed: {e}"))?
+                .reply()
+                .map_err(|e| format!("intern_atom({name}) reply failed: {e}"))?
+                .atom)
+        };
+
+        let net_client_list = intern("_NET_CLIENT_LIST")?;
+        let net_wm_name = intern("_NET_WM_NAME")?;
+        let utf8_string = intern("UTF8_STRING")?;
+        let net_active_window = intern("_NET_ACTIVE_WINDOW")?;
+
+        let list_reply = conn
+            .get_property(false, root, net_client_list, AtomEnum::WINDOW, 0, u32::MAX)
+            .map_err(|e| format!("_NET_CLIENT_LIST request failed: {}", e))?
+            .reply()
+            .map_err(|e| format!("_NET_CLIENT_LIST reply failed: {}", e))?;
+
+        let windows: Vec<u32> = list_reply
+            .value32()
+            .map(|it| it.collect())
+            .unwrap_or_default();
+
+        for win in windows {
+            let name = conn
+                .get_property(false, win, net_wm_name, utf8_string, 0, 1024)
+                .ok()
+                .and_then(|c| c.reply().ok())
+                .map(|r| String::from_utf8_lossy(&r.value).into_owned())
+                .filter(|s| !s.is_empty())
+                .or_else(|| {
+                    conn.get_property(false, win, AtomEnum::WM_NAME, AtomEnum::STRING, 0, 1024)
+                        .ok()
+                        .and_then(|c| c.reply().ok())
+                        .map(|r| String::from_utf8_lossy(&r.value).into_owned())
+                });
+
+            if name.as_deref() != Some(title) {
+                continue;
+            }
+
+            // source indication = 2 ("pager/other utility"), not 1
+            // ("application activating its own window"). We're a separate
+            // process handing focus to a *different* application's window
+            // on the user's behalf — the same role a taskbar/pager plays,
+            // not D2 reclaiming itself. This matters in practice, not just
+            // semantically: KWin (confirmed live) applies real
+            // focus-stealing-prevention scrutiny to source=1 requests —
+            // weighed against the requesting app's own recent-user-input
+            // timestamp — which this process has none of, since the user
+            // never actually interacts with it directly. That scrutiny is
+            // lenient with no competing focus history (works right after
+            // launch) but starts silently ignoring the request once real
+            // focus history exists (e.g. after alt-tabbing away and back),
+            // which reproduced as an unrecoverable focus-flip loop: our
+            // "give focus back to D2" request gets dropped, the overlay
+            // (which the WM did auto-focus on map) reads as focused, we
+            // hide it, focus reverts to D2, next tick shows the overlay
+            // again, repeat — until a real user click legitimizes a
+            // request. source=2 is the pager path, which WMs are expected
+            // to honor without that scrutiny — timestamp = 0 (unknown) is
+            // normal for it since pagers don't have a "last user event" of
+            // their own; requestor's currently-active window = 0
+            // (unknown/not tracked here).
+            let event = ClientMessageEvent::new(
+                32,
+                win,
+                net_active_window,
+                ClientMessageData::from([2u32, 0, 0, 0, 0]),
+            );
+            conn.send_event(
+                false,
+                root,
+                EventMask::SUBSTRUCTURE_REDIRECT | EventMask::SUBSTRUCTURE_NOTIFY,
+                event,
+            )
+            .map_err(|e| format!("send_event(_NET_ACTIVE_WINDOW) failed: {}", e))?;
+            conn.flush()
+                .map_err(|e| format!("X11 flush failed: {}", e))?;
+            return Ok(());
+        }
+
+        Err(format!("Window titled '{}' not found", title))
+    }
+
+    /// Same as `activate_window_by_title`, but re-issues the request a few
+    /// times (with a short sleep) until `is_window_focused_by_title`
+    /// confirms it actually landed, instead of firing once and hoping.
+    ///
+    /// The single-shot version was found to still lose the focus-flicker
+    /// race in practice: `overlay.show()` returning doesn't mean KWin has
+    /// finished mapping/auto-focusing the overlay yet, so an activate call
+    /// placed immediately after can land *before* the WM's own map-time
+    /// focus grab — D2 flashes active, then the overlay steals it right
+    /// back a moment later, and the next poll tick sees D2 unfocused again.
+    /// Retrying for a short window absorbs that ordering race without
+    /// switching the whole sync loop to be event-driven.
+    pub fn activate_window_by_title_confirmed(title: &str) -> Result<(), String> {
+        const MAX_ATTEMPTS: u32 = 6;
+        const RETRY_DELAY: std::time::Duration = std::time::Duration::from_millis(15);
+
+        let mut last_err = None;
+        for attempt in 0..MAX_ATTEMPTS {
+            match activate_window_by_title(title) {
+                Ok(()) => {
+                    std::thread::sleep(RETRY_DELAY);
+                    if is_window_focused_by_title(title).unwrap_or(false) {
+                        return Ok(());
+                    }
+                }
+                Err(e) => {
+                    last_err = Some(e);
+                    std::thread::sleep(RETRY_DELAY);
+                }
+            }
+            let _ = attempt;
+        }
+        Err(last_err.unwrap_or_else(|| {
+            format!(
+                "activate_window_by_title_confirmed: '{}' never confirmed focused after {} attempts",
+                title, MAX_ATTEMPTS
+            )
+        }))
+    }
+
     /// Whether the window titled `title` is currently the active/focused
     /// window, via `_NET_ACTIVE_WINDOW` on the root window. Used to hide
     /// the overlay when the user has switched away from the game, rather
@@ -1090,6 +1238,10 @@ mod linux_impl {
 }
 
 #[cfg(target_os = "linux")]
+pub use linux_impl::activate_window_by_title as linux_activate_window_by_title;
+#[cfg(target_os = "linux")]
+pub use linux_impl::activate_window_by_title_confirmed as linux_activate_window_by_title_confirmed;
+#[cfg(target_os = "linux")]
 pub use linux_impl::find_window_rect_by_title as linux_find_window_rect_by_title;
 #[cfg(target_os = "linux")]
 pub use linux_impl::is_d2_or_own_window_focused as linux_is_d2_or_own_window_focused;
@@ -1428,6 +1580,212 @@ impl D2Context {
 #[cfg(all(test, target_os = "linux"))]
 mod live_probe {
     use super::*;
+
+    /// Scan every readable region of the live process for `needle`, both
+    /// as raw ASCII and as UTF-16LE (D2's UI text fields can be either
+    /// depending on the control), printing each hit with surrounding
+    /// context bytes. One-off RE tool: run with
+    /// `SCAN_NEEDLE=<marker> cargo test --target x86_64-unknown-linux-gnu \
+    ///   scan_memory_for_string -- --ignored --nocapture`
+    /// after typing `<marker>` into a live UI text field, to locate its
+    /// backing buffer address without guessing at struct layouts.
+    #[test]
+    #[ignore]
+    fn scan_memory_for_string() {
+        let needle_str =
+            std::env::var("SCAN_NEEDLE").expect("set SCAN_NEEDLE=<marker text> before running");
+        let ascii_needle = needle_str.as_bytes().to_vec();
+        let utf16_needle: Vec<u8> = needle_str
+            .encode_utf16()
+            .flat_map(|c| c.to_le_bytes())
+            .collect();
+
+        let ctx = D2Context::new().expect("attach failed");
+        let pid = ctx.process.pid;
+
+        let maps = std::fs::read_to_string(format!("/proc/{}/maps", pid))
+            .expect("reading /proc/<pid>/maps failed");
+
+        let mut total_hits = 0usize;
+        for line in maps.lines() {
+            let mut parts = line.split_whitespace();
+            let Some(range) = parts.next() else { continue };
+            let Some(perms) = parts.next() else { continue };
+            if !perms.starts_with('r') {
+                continue;
+            }
+            let Some((start_s, end_s)) = range.split_once('-') else {
+                continue;
+            };
+            let (Ok(start), Ok(end)) = (
+                usize::from_str_radix(start_s, 16),
+                usize::from_str_radix(end_s, 16),
+            ) else {
+                continue;
+            };
+            let size = end.saturating_sub(start);
+            // Skip absurdly large regions (e.g. reserved-but-unbacked
+            // ranges) to keep this a quick manual tool, not a full dump.
+            if size == 0 || size > 256 * 1024 * 1024 {
+                continue;
+            }
+
+            let Ok(buf) = ctx.process.read_buffer(start, size) else {
+                continue;
+            };
+
+            for (needle, kind) in [(&ascii_needle, "ascii"), (&utf16_needle, "utf16le")] {
+                if needle.is_empty() {
+                    continue;
+                }
+                let mut offset = 0usize;
+                while let Some(pos) = buf[offset..]
+                    .windows(needle.len())
+                    .position(|w| w == needle.as_slice())
+                {
+                    let addr = start + offset + pos;
+                    total_hits += 1;
+                    let ctx_start = (offset + pos).saturating_sub(32);
+                    let ctx_end = (offset + pos + needle.len() + 32).min(buf.len());
+                    println!(
+                        "[{}] hit @ {:#x} (region {}-{} perms={})",
+                        kind, addr, range, perms, perms
+                    );
+                    println!("  bytes: {:02x?}", &buf[ctx_start..ctx_end]);
+                    println!(
+                        "  ascii: {:?}",
+                        String::from_utf8_lossy(&buf[ctx_start..ctx_end])
+                    );
+                    offset += pos + 1;
+                    if offset >= buf.len() {
+                        break;
+                    }
+                }
+            }
+        }
+        println!("total hits: {}", total_hits);
+    }
+
+    /// Dump a window of memory around a known-good hit address (found via
+    /// `scan_memory_for_string`) to visually inspect the surrounding
+    /// struct layout — e.g. sibling UI control fields for Password /
+    /// Description next to a confirmed Game Name buffer. Run with
+    /// `SCAN_ADDR=0x... [SCAN_BEFORE=0x400] [SCAN_AFTER=0x400] cargo test \
+    ///   --target x86_64-unknown-linux-gnu dump_region -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn dump_region() {
+        let addr = usize::from_str_radix(
+            std::env::var("SCAN_ADDR")
+                .expect("set SCAN_ADDR=0x... before running")
+                .trim_start_matches("0x"),
+            16,
+        )
+        .expect("SCAN_ADDR must be hex");
+        let before: usize = std::env::var("SCAN_BEFORE")
+            .ok()
+            .and_then(|s| usize::from_str_radix(s.trim_start_matches("0x"), 16).ok())
+            .unwrap_or(0x400);
+        let after: usize = std::env::var("SCAN_AFTER")
+            .ok()
+            .and_then(|s| usize::from_str_radix(s.trim_start_matches("0x"), 16).ok())
+            .unwrap_or(0x400);
+
+        let ctx = D2Context::new().expect("attach failed");
+        let start = addr.saturating_sub(before);
+        let size = before + after;
+        let buf = ctx
+            .process
+            .read_buffer(start, size)
+            .expect("read_buffer failed");
+
+        for (i, chunk) in buf.chunks(16).enumerate() {
+            let line_addr = start + i * 16;
+            let hex: Vec<String> = chunk.iter().map(|b| format!("{:02x}", b)).collect();
+            let ascii: String = chunk
+                .iter()
+                .map(|&b| {
+                    if (0x20..0x7f).contains(&b) {
+                        b as char
+                    } else {
+                        '.'
+                    }
+                })
+                .collect();
+            let marker = if line_addr <= addr && addr < line_addr + 16 {
+                " <=="
+            } else {
+                ""
+            };
+            println!(
+                "{:#010x}: {:<48} {}{}",
+                line_addr,
+                hex.join(" "),
+                ascii,
+                marker
+            );
+        }
+    }
+
+    /// Search every readable region for 4-byte little-endian pointer
+    /// values equal to `SCAN_PTR` (a target address found via
+    /// `scan_memory_for_string`) — i.e. "what points at this address".
+    /// Used to trace a transient heap buffer back to whatever stable
+    /// parent structure holds a pointer to it.
+    #[test]
+    #[ignore]
+    fn scan_memory_for_pointer() {
+        let target = usize::from_str_radix(
+            std::env::var("SCAN_PTR")
+                .expect("set SCAN_PTR=0x... before running")
+                .trim_start_matches("0x"),
+            16,
+        )
+        .expect("SCAN_PTR must be hex") as u32;
+        let needle = target.to_le_bytes();
+
+        let ctx = D2Context::new().expect("attach failed");
+        let pid = ctx.process.pid;
+        let maps = std::fs::read_to_string(format!("/proc/{}/maps", pid))
+            .expect("reading /proc/<pid>/maps failed");
+
+        let mut total_hits = 0usize;
+        for line in maps.lines() {
+            let mut parts = line.split_whitespace();
+            let Some(range) = parts.next() else { continue };
+            let Some(perms) = parts.next() else { continue };
+            if !perms.starts_with('r') {
+                continue;
+            }
+            let Some((start_s, end_s)) = range.split_once('-') else {
+                continue;
+            };
+            let (Ok(start), Ok(end)) = (
+                usize::from_str_radix(start_s, 16),
+                usize::from_str_radix(end_s, 16),
+            ) else {
+                continue;
+            };
+            let size = end.saturating_sub(start);
+            if size == 0 || size > 256 * 1024 * 1024 {
+                continue;
+            }
+            let Ok(buf) = ctx.process.read_buffer(start, size) else {
+                continue;
+            };
+
+            let mut offset = 0usize;
+            while offset + 4 <= buf.len() {
+                if buf[offset..offset + 4] == needle {
+                    let addr = start + offset;
+                    total_hits += 1;
+                    println!("hit @ {:#x} (region {} perms={})", addr, range, perms);
+                }
+                offset += 4;
+            }
+        }
+        println!("total hits: {}", total_hits);
+    }
 
     #[test]
     #[ignore]

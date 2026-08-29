@@ -7,6 +7,11 @@
   let autoAlwaysShowItems = $derived(settingsStore.settings.autoAlwaysShowItems);
   let autoNoPickup = $derived(settingsStore.settings.autoNoPickup);
   let dpsMeterEnabled = $derived(settingsStore.settings.dpsMeter?.enabled ?? false);
+  let gameCreateNamePrefix = $derived(settingsStore.settings.gameCreateNamePrefix);
+  let gameCreatePassword = $derived(settingsStore.settings.gameCreatePassword);
+  let gameCreatePasswordPrefix = $derived(settingsStore.settings.gameCreatePasswordPrefix);
+  let gameCreatePasswordUsePrefix = $derived(settingsStore.settings.gameCreatePasswordUsePrefix);
+  let gameCreateDescription = $derived(settingsStore.settings.gameCreateDescription);
 
   const UNBOUND_HOTKEY: HotkeyConfig = { keyCode: 0, modifiers: 0, display: 'None' };
 
@@ -16,7 +21,8 @@
     | 'revealHidden'
     | 'lootHistory'
     | 'itemSearch'
-    | 'dpsMeterReset';
+    | 'dpsMeterReset'
+    | 'gameCreateAutofill';
   interface HotkeyRow {
     id: HotkeyId;
     label: string;
@@ -65,6 +71,15 @@
     },
   ];
 
+  const GAME_CREATE_HOTKEY_ROWS: readonly HotkeyRow[] = [
+    {
+      id: 'gameCreateAutofill',
+      label: 'Autofill create-game fields',
+      hint: 'Click into the Game Name field first, then press this — types Name, Tab, Password, and Description (if set) for you',
+      setter: (h) => settingsStore.setGameCreateAutofillHotkey(h),
+    },
+  ];
+
   const HOTKEY_GETTERS: Record<HotkeyId, () => HotkeyConfig> = {
     toggleWindow: () => settingsStore.settings.toggleWindowHotkey,
     editOverlay: () => settingsStore.settings.editOverlayHotkey,
@@ -72,6 +87,7 @@
     lootHistory: () => settingsStore.settings.lootHistoryHotkey,
     itemSearch: () => settingsStore.settings.itemSearchHotkey,
     dpsMeterReset: () => settingsStore.settings.dpsMeter?.hotkeyReset ?? UNBOUND_HOTKEY,
+    gameCreateAutofill: () => settingsStore.settings.gameCreateAutofillHotkey,
   };
   let hotkeyValues = $derived(
     Object.fromEntries(
@@ -129,7 +145,7 @@
   }
 
   function handleHotkeyChange(id: HotkeyId, hotkey: HotkeyConfig) {
-    const allRows = [...HOTKEY_ROWS, ...DPS_HOTKEY_ROWS];
+    const allRows = [...HOTKEY_ROWS, ...DPS_HOTKEY_ROWS, ...GAME_CREATE_HOTKEY_ROWS];
     if (isBound(hotkey)) {
       for (const row of allRows) {
         if (row.id === id) continue;
@@ -163,6 +179,26 @@
 
   function handleAutoNoPickupChange(enabled: boolean) {
     settingsStore.setAutoNoPickup(enabled);
+  }
+
+  function handleGameCreateNamePrefixInput(e: Event) {
+    settingsStore.setGameCreateNamePrefix((e.target as HTMLInputElement).value);
+  }
+
+  function handleGameCreatePasswordInput(e: Event) {
+    settingsStore.setGameCreatePassword((e.target as HTMLInputElement).value);
+  }
+
+  function handleGameCreatePasswordPrefixInput(e: Event) {
+    settingsStore.setGameCreatePasswordPrefix((e.target as HTMLInputElement).value);
+  }
+
+  function handleGameCreatePasswordUsePrefixChange(enabled: boolean) {
+    settingsStore.setGameCreatePasswordUsePrefix(enabled);
+  }
+
+  function handleGameCreateDescriptionInput(e: Event) {
+    settingsStore.setGameCreateDescription((e.target as HTMLInputElement).value);
   }
 
   let showChangelog = $state(false);
@@ -267,6 +303,87 @@
   </div>
 
   <div class="settings-section">
+    <h2 class="section-title">Create Game Autofill</h2>
+
+    {#each GAME_CREATE_HOTKEY_ROWS as row (row.id)}
+      <div class="setting-row">
+        <div class="setting-info">
+          <span class="setting-label">{row.label}</span>
+          <span class="setting-hint">{row.hint}</span>
+        </div>
+        <HotkeyInput value={hotkeyValues[row.id]} onchange={(h) => handleHotkeyChange(row.id, h)} />
+      </div>
+    {/each}
+
+    <div class="setting-row">
+      <div class="setting-info">
+        <span class="setting-label">Game name prefix</span>
+        <span class="setting-hint"
+          >Game name = prefix + an auto-incrementing number (not saved between launches)</span
+        >
+      </div>
+      <input
+        type="text"
+        class="text-input"
+        value={gameCreateNamePrefix}
+        oninput={handleGameCreateNamePrefixInput}
+        placeholder="e.g. MyGame"
+      />
+    </div>
+
+    <div class="setting-row">
+      <div class="setting-info">
+        <span class="setting-label">Password auto-increments too</span>
+        <span class="setting-hint">Uses the same number as the game name for this run</span>
+      </div>
+      <Toggle
+        checked={gameCreatePasswordUsePrefix}
+        onchange={handleGameCreatePasswordUsePrefixChange}
+      />
+    </div>
+
+    {#if gameCreatePasswordUsePrefix}
+      <div class="setting-row">
+        <div class="setting-info">
+          <span class="setting-label">Password prefix</span>
+        </div>
+        <input
+          type="text"
+          class="text-input"
+          value={gameCreatePasswordPrefix}
+          oninput={handleGameCreatePasswordPrefixInput}
+          placeholder="e.g. pw"
+        />
+      </div>
+    {:else}
+      <div class="setting-row">
+        <div class="setting-info">
+          <span class="setting-label">Password</span>
+        </div>
+        <input
+          type="text"
+          class="text-input"
+          value={gameCreatePassword}
+          oninput={handleGameCreatePasswordInput}
+        />
+      </div>
+    {/if}
+
+    <div class="setting-row">
+      <div class="setting-info">
+        <span class="setting-label">Description</span>
+        <span class="setting-hint">Left as-is if empty</span>
+      </div>
+      <input
+        type="text"
+        class="text-input"
+        value={gameCreateDescription}
+        oninput={handleGameCreateDescriptionInput}
+      />
+    </div>
+  </div>
+
+  <div class="settings-section">
     <div class="setting-row">
       <div class="setting-info">
         <span class="setting-label">Auto-toggle item highlight (alt) on new game</span>
@@ -367,6 +484,16 @@
 {/if}
 
 <style>
+  .text-input {
+    padding: var(--space-1) var(--space-2);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    font: inherit;
+    min-width: 180px;
+  }
+
   .update-control {
     display: flex;
     align-items: center;

@@ -240,8 +240,8 @@
       <div class="help-content">
         <p>Rule format (all parts optional — rules are matched last-wins):</p>
         <code
-          >["name"] [quality] [tier] [sockets] [eth] &#123;stat&#125; [color] [show|hide] [sound]
-          [notify] [stat] [map]</code
+          >["name"] [quality] [tier] [sockets] [level] [class] [eth] &#123;stat&#125; [color]
+          [show|hide] [sound] [notify] [stat] [map]</code
         >
 
         <div class="help-columns">
@@ -293,6 +293,39 @@
           </div>
 
           <div class="help-column">
+            <h4>Level</h4>
+            <ul>
+              <li>
+                <span class="kw-socket">min_clvl20</span>,
+                <span class="kw-socket">max_clvl99</span> (char level)
+              </li>
+              <li>
+                <span class="kw-socket">min_ilvl40</span>,
+                <span class="kw-socket">max_ilvl99</span> (item level)
+              </li>
+            </ul>
+          </div>
+
+          <div class="help-column">
+            <h4>Class</h4>
+            <ul>
+              <li>
+                <span class="kw-quality">amazon</span>,
+                <span class="kw-quality">sorceress</span>,
+                <span class="kw-quality">necromancer</span>
+              </li>
+              <li>
+                <span class="kw-quality">paladin</span>,
+                <span class="kw-quality">barbarian</span>
+              </li>
+              <li>
+                <span class="kw-quality">druid</span>,
+                <span class="kw-quality">assassin</span>
+              </li>
+            </ul>
+          </div>
+
+          <div class="help-column">
             <h4>Colors</h4>
             <ul>
               <li>
@@ -339,6 +372,7 @@
 
         <p class="help-note">
           <strong><span class="kw-ethereal">eth</span></strong> — match ethereal items only<br />
+          <strong><span class="kw-ethereal">quest</span></strong> — match quest items only<br />
           <strong><span class="kw-notification">stat</span></strong> — include item stats in the
           notification<br />
           <strong><span class="kw-notification">map</span></strong> — drop a red-cross marker on the
