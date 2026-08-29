@@ -984,6 +984,20 @@ fn set_filter_config(
     Ok(())
 }
 
+/// Opens the WebKit/WebView2 inspector for the calling window. Right-click's
+/// native context menu is suppressed app-wide (see App.svelte) except inside
+/// inputs/the rules editor, so this is the only way to reach devtools during
+/// development. Debug-only: `devtools` is a real Cargo feature gate in
+/// Tauri v2 (unlike v1, not automatic for debug builds), and `open_devtools`
+/// only exists on the type when that feature is enabled.
+#[tauri::command]
+fn open_devtools(window: tauri::WebviewWindow) {
+    #[cfg(debug_assertions)]
+    window.open_devtools();
+    #[cfg(not(debug_assertions))]
+    let _ = window;
+}
+
 /// Enable or disable the per-item `[Filter] ...` log line.
 #[tauri::command]
 fn set_verbose_filter_logging(enabled: bool, state: tauri::State<AppState>) {
@@ -2409,6 +2423,7 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            open_devtools,
             get_scanner_status,
             get_game_status,
             get_items_dictionary,
