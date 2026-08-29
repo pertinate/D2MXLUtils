@@ -67,7 +67,7 @@ function isSoundKeyword(word: string): boolean {
   return SOUND_KEYWORD_REGEX.test(word);
 }
 const DISPLAY_KEYWORDS = ['stat'];
-const MODIFIER_KEYWORDS = ['eth'];
+const MODIFIER_KEYWORDS = ['eth', 'quest'];
 const MAP_KEYWORDS = ['map'];
 
 const d2rulesLanguage = StreamLanguage.define({

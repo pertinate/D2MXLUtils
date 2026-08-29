@@ -17,6 +17,7 @@ attr          := quality
                | level
                | class
                | 'eth'
+               | 'quest'
                | stat_pattern
                | color
                | visibility
@@ -187,6 +188,23 @@ necro barb notify {Faster Cast Rate}   # only while playing necro or barb
 
 ```
 eth     # only ethereal items
+```
+
+---
+
+### Quest
+
+```
+quest     # only quest items
+```
+
+Matches items whose items.txt base type (or category) is Median XL's
+`Quest Item` — the same field the name pattern checks against, so
+`"Quest Item"` and `quest` are equivalent. Reagents (`Cube Reagent`) are a
+separate base type and are not matched by `quest`.
+
+```
+quest orange map notify   # highlight and map every quest item
 ```
 
 ---

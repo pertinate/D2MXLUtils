@@ -47,6 +47,12 @@ impl<'a> MatchContext<'a> {
         if !self.level_match(rule.min_ilvl, rule.max_ilvl, self.item.ilvl) {
             return false;
         }
+        if rule.quest
+            && !(self.base_name_lower.contains("quest item")
+                || self.category_lower.contains("quest item"))
+        {
+            return false;
+        }
         if rule.ethereal && !self.item.is_ethereal {
             return false;
         }
@@ -95,6 +101,12 @@ impl<'a> MatchContext<'a> {
             return PartialRuleMatch::NoMatch;
         }
         if !self.level_match(rule.min_ilvl, rule.max_ilvl, self.item.ilvl) {
+            return PartialRuleMatch::NoMatch;
+        }
+        if rule.quest
+            && !(self.base_name_lower.contains("quest item")
+                || self.category_lower.contains("quest item"))
+        {
             return PartialRuleMatch::NoMatch;
         }
         if rule.ethereal && !self.item.is_ethereal {
@@ -440,6 +452,21 @@ mod tests {
 
         let norm_it = item("X", "Unique", "", false);
         let ctx = MatchContext::new(&norm_it);
+        assert!(!ctx.matches(&r));
+    }
+
+    #[test]
+    fn quest_rule_matches_only_quest_item_base_name() {
+        let quest_it = item_with_base("Tome of Possession", "Quest Item", "Normal", "");
+        let ctx = MatchContext::new(&quest_it);
+        let r = Rule {
+            quest: true,
+            ..Rule::default()
+        };
+        assert!(ctx.matches(&r));
+
+        let ring_it = item_with_base("Ring of the Five", "Ring", "Normal", "");
+        let ctx = MatchContext::new(&ring_it);
         assert!(!ctx.matches(&r));
     }
 

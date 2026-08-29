@@ -372,6 +372,7 @@
 
         <p class="help-note">
           <strong><span class="kw-ethereal">eth</span></strong> — match ethereal items only<br />
+          <strong><span class="kw-ethereal">quest</span></strong> — match quest items only<br />
           <strong><span class="kw-notification">stat</span></strong> — include item stats in the
           notification<br />
           <strong><span class="kw-notification">map</span></strong> — drop a red-cross marker on the

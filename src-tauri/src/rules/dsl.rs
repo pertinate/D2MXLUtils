@@ -69,6 +69,7 @@ struct Attrs {
     min_ilvl: Option<u32>,
     max_ilvl: Option<u32>,
     ethereal: Option<bool>,
+    quest: Option<bool>,
     visibility: Option<Visibility>,
     color: Option<NotifyColor>,
     sound: Option<u8>,
@@ -108,6 +109,9 @@ impl Attrs {
         }
         if let Some(e) = self.ethereal {
             rule.ethereal = e;
+        }
+        if let Some(q) = self.quest {
+            rule.quest = q;
         }
         if let Some(v) = self.visibility {
             rule.visibility = v;
@@ -161,6 +165,9 @@ impl Attrs {
         }
         if self.ethereal.is_none() {
             self.ethereal = group.ethereal;
+        }
+        if self.quest.is_none() {
+            self.quest = group.quest;
         }
         if self.visibility.is_none() {
             self.visibility = group.visibility;
@@ -593,6 +600,10 @@ fn parse_attrs_into(
                 attrs.ethereal = Some(true);
                 continue;
             }
+            "quest" => {
+                attrs.quest = Some(true);
+                continue;
+            }
             "show" => {
                 attrs.visibility = Some(Visibility::Show);
                 continue;
@@ -820,6 +831,7 @@ fn attrs_from_rule(rule: &Rule) -> Attrs {
         min_ilvl: rule.min_ilvl,
         max_ilvl: rule.max_ilvl,
         ethereal: if rule.ethereal { Some(true) } else { None },
+        quest: if rule.quest { Some(true) } else { None },
         visibility: if rule.visibility == Visibility::Default {
             None
         } else {
@@ -880,7 +892,7 @@ fn is_known_token(lower: &str) -> bool {
     }
     matches!(
         lower,
-        "eth" | "show" | "hide" | "notify" | "stat" | "sound_none" | "map"
+        "eth" | "quest" | "show" | "hide" | "notify" | "stat" | "sound_none" | "map"
     ) || parse_sound_keyword(lower).is_some()
 }
 
@@ -1083,6 +1095,9 @@ fn rule_subsumes(later: &Rule, earlier: &Rule) -> bool {
     if later.ethereal && !earlier.ethereal {
         return false;
     }
+    if later.quest && !earlier.quest {
+        return false;
+    }
     if let Some(ref l) = later.name_pattern {
         match &earlier.name_pattern {
             Some(e) if e == l => {}
@@ -1145,6 +1160,15 @@ mod tests {
         assert_eq!(r.qualities, vec![ItemQuality::Unique]);
         assert_eq!(r.color, Some(NotifyColor::Gold));
         assert!(!r.notify);
+    }
+
+    #[test]
+    fn parses_quest_keyword() {
+        let cfg = parse_dsl("quest orange notify").unwrap();
+        assert_eq!(cfg.rules.len(), 1);
+        let r = &cfg.rules[0];
+        assert!(r.quest);
+        assert_eq!(r.color, Some(NotifyColor::Orange));
     }
 
     #[test]

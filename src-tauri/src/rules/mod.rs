@@ -289,6 +289,13 @@ pub struct Rule {
     #[serde(default, skip_serializing_if = "is_false")]
     pub ethereal: bool,
 
+    /// Matched against `base_name`/`category` (Median XL's "Quest Item"
+    /// items.txt type), the same mechanism the default profile already
+    /// used for its `"Quest Item|Cube Reagent"` name-pattern rule — not a
+    /// separate memory-read flag.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub quest: bool,
+
     #[serde(default, skip_serializing_if = "is_default_visibility")]
     pub visibility: Visibility,
 
