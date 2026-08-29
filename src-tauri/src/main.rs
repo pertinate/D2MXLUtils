@@ -2153,6 +2153,19 @@ fn main() {
         std::env::set_var("GDK_BACKEND", "x11");
     }
 
+    // NVIDIA's proprietary driver has long had incomplete/buggy DMA-BUF
+    // export support, which is what WebKitGTK's hardware compositing path
+    // relies on. On affected setups (confirmed: NVIDIA + Wayland session,
+    // even with GDK_BACKEND forced to x11 above) this doesn't crash or log
+    // anything from WebKit — the window just paints its background and
+    // never draws page content, i.e. a silent white screen. This is a
+    // lightweight overlay UI, not a GPU-heavy page, so there's no real
+    // cost to disabling the DMA-BUF renderer unconditionally.
+    #[cfg(target_os = "linux")]
+    if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
+        std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+    }
+
     // Enable SeDebugPrivilege so OpenProcess has the same behavior as legacy tools.
     enable_debug_privilege();
 

@@ -20,20 +20,20 @@ Requirements:
 Median XL runs under Wine/Proton; D2MXLUtils itself runs natively and attaches
 to the game process directly (not via Wine), so it works regardless of which
 Wine/Proton build or prefix the game uses. Beyond Tauri's own Linux
-prerequisites (webkit2gtk, gtk3 — see the official Tauri docs), two things
-are easy to miss and both fail silently rather than with an obvious error:
+prerequisites (webkit2gtk, gtk3 — see the official Tauri docs), one thing
+is easy to miss and fails silently rather than with an obvious error:
 
-- **`gst-plugins-good`** — required for drop-notification sound playback.
-  WebKitGTK plays audio via GStreamer; without this package, MP3 playback
-  fails silently (missing ID3 tag demuxer and default audio sink). Install
-  via your distro's package manager, e.g. `sudo pacman -S gst-plugins-good`
-  on Arch/CachyOS, `sudo apt install gstreamer1.0-plugins-good` on Debian/Ubuntu.
 - **`kernel.yama.ptrace_scope`** — the game-process attach/read/inject
   mechanism uses `ptrace`, which the kernel's Yama LSM restricts to a
   process's own children by default on most distros. Since D2MXLUtils isn't
   a parent of the game process, relax this for the current boot with
   `sudo sysctl kernel.yama.ptrace_scope=0`, or persist it via a file in
   `/etc/sysctl.d/`. Without this, the app fails to attach to the game at all.
+
+On NVIDIA + Wayland, the app already works around a known WebKitGTK issue
+(incomplete DMA-BUF export support in NVIDIA's driver) by forcing
+`WEBKIT_DISABLE_DMABUF_RENDERER=1` at startup — without it, the window opens
+but never renders any content (a silent white screen, no error logged).
 
 Install dependencies:
 
