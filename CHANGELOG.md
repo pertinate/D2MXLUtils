@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.26.3 — 2026-08-29
+
+### Bug Fixes
+
+- Fix(updater): add real Linux AppImage self-update support (c1fdf23)
+
+### Other
+
+- 1.26.3 (56ef1fc)
+
 ## v1.26.2 — 2026-08-29
 
 ### Other
