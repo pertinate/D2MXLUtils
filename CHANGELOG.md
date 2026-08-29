@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.26.4 — 2026-08-29
+
+### Bug Fixes
+
+- Fix(map-marker): attach markers as pObjects leaves, not root swaps (6b82a5f)
+
+### Other
+
+- 1.26.4 (ce3f69f)
+
 ## v1.26.3 — 2026-08-29
 
 ### Bug Fixes
