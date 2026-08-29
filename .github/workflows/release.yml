@@ -114,15 +114,15 @@ jobs:
           git diff --staged --quiet || { git commit -m "docs: update CHANGELOG.md" && git push origin master; }
 
   build-and-release-linux:
-    needs: build-and-release
-    # Runs whether the Windows job actually ran or was skipped (testing
-    # Linux alone) — just not if Windows genuinely failed. `always()` is
-    # needed here because a skipped `needs` job otherwise skips this one
-    # too by default.
-    if: |
-      always() &&
-      (needs.build-and-release.result == 'success' || needs.build-and-release.result == 'skipped') &&
-      (github.event_name != 'workflow_dispatch' || inputs.target == 'both' || inputs.target == 'linux')
+    # Runs in parallel with build-and-release (no `needs:` — this job is
+    # entirely self-contained: its own checkout, its own build, its own
+    # release upload. It shares a tag_name with the Windows job but
+    # doesn't consume any output from it; softprops/action-gh-release
+    # safely handles both jobs appending an asset to the same release
+    # concurrently (creates it if it doesn't exist yet, uploads to it if
+    # it does), which is the standard pattern for parallel multi-platform
+    # release jobs.
+    if: github.event_name != 'workflow_dispatch' || inputs.target == 'both' || inputs.target == 'linux'
     runs-on: ubuntu-latest
     # Ubuntu 24.04's (`ubuntu-latest`'s host) apt-packaged webkit2gtk-4.1
     # is several minor versions behind current — bundling it into the
