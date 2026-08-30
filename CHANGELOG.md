@@ -1,5 +1,25 @@
 # Changelog
 
+## v1.26.13 — 2026-08-30
+
+### Bug Fixes
+
+- Fix(unique-stats-db): pin gh CLI calls to the correct repo (aa460d6)
+
+### Other
+
+- 1.26.13 (14adda9)
+
+## v1.26.12 — 2026-08-30
+
+### Bug Fixes
+
+- Fix(unique-stats-db): publish locally instead of via CI (blocked outright) (8cb794f)
+
+### Other
+
+- 1.26.12 (8fe07cf)
+
 ## v1.26.11 — 2026-08-30
 
 ### Features
