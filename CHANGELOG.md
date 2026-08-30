@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.26.10 — 2026-08-30
+
+### Bug Fixes
+
+- Fix(map-marker): clear persistent cache on real area/act change (ca36b63)
+
+### Other
+
+- 1.26.10 (f13eaa5)
+
 ## v1.26.9 — 2026-08-30
 
 ### Bug Fixes
