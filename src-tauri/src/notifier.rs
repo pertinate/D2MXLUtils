@@ -125,6 +125,13 @@ pub struct DropScanner {
     seen_items: HashSet<u32>,
     /// When true, log per-item filter decisions (opt-in; noisy).
     verbose_filter_logging: bool,
+    /// When true, record the source line of every rule that decides an
+    /// item's outcome so the editor can flash it (opt-in; the Loot Filter
+    /// tab's "show matches" mode).
+    live_match_highlight: bool,
+    /// Rule source lines matched since the last drain, deduped in-order.
+    /// Drained by the main loop into `filter-rule-matched` events.
+    pending_matched_lines: Vec<usize>,
     /// Loot filter hook for D2Sigma.dll
     loot_hook: LootFilterHook,
     /// Indexed by `UnitAny.class`. Built lazily on first in-game tick.
@@ -430,6 +437,8 @@ impl DropScanner {
             state,
             seen_items: HashSet::new(),
             verbose_filter_logging: false,
+            live_match_highlight: false,
+            pending_matched_lines: Vec::new(),
             loot_hook,
             class_cache: None,
             unique_cache: None,
@@ -465,6 +474,10 @@ impl DropScanner {
 
     pub fn set_verbose_filter_logging(&mut self, enabled: bool) {
         self.verbose_filter_logging = enabled;
+    }
+
+    pub fn set_live_match_highlight(&mut self, enabled: bool) {
+        self.live_match_highlight = enabled;
     }
 
     pub fn set_force_show_all(&self, value: bool) -> Result<(), String> {
@@ -682,6 +695,13 @@ impl DropScanner {
                         }
                     }
                 };
+
+                if self.live_match_highlight {
+                    if let Some(line) = decision.matched_line {
+                        self.pending_matched_lines.push(line);
+                    }
+                }
+
                 cached_filter_decision = Some(CachedFilterDecision::from_decision(
                     filter_generation,
                     &decision,
@@ -1864,6 +1884,12 @@ impl DropScanner {
     pub fn drain_goblin_events(&mut self) -> Vec<GoblinDetectedEvent> {
         std::mem::take(&mut self.last_goblin_events)
     }
+
+    /// Take the rule source lines matched since the last drain (only
+    /// populated while `live_match_highlight` is enabled).
+    pub fn drain_matched_lines(&mut self) -> Vec<usize> {
+        std::mem::take(&mut self.pending_matched_lines)
+    }
 }
 
 #[cfg(any(target_os = "windows", target_os = "linux"))]
@@ -2027,11 +2053,17 @@ impl DropScanner {
         Vec::new()
     }
 
+    pub fn drain_matched_lines(&mut self) -> Vec<usize> {
+        Vec::new()
+    }
+
     pub fn set_filter_config(&mut self, _config: Arc<RwLock<FilterConfig>>) {}
 
     pub fn on_filter_config_changed(&mut self) {}
 
     pub fn set_verbose_filter_logging(&mut self, _enabled: bool) {}
+
+    pub fn set_live_match_highlight(&mut self, _enabled: bool) {}
 
     pub fn set_force_show_all(&self, _value: bool) -> Result<(), String> {
         Ok(())

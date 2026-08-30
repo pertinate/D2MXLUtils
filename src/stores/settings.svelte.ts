@@ -89,6 +89,9 @@ export interface AppSettings {
   gameCreateDescription: string;
   /** When true, scanner logs per-item filter decisions (noisy; opt-in debug). */
   verboseFilterLogging: boolean;
+  /** How long the Loot Filter tab's "show matches" mode keeps a rule line
+   *  flashed after it decides a drop, in milliseconds. */
+  liveMatchHighlightDurationMs: number;
   autoAlwaysShowItems: boolean;
   autoNoPickup: boolean;
   /** Per-slot drop sounds. Slot index = position + 1.
@@ -180,6 +183,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   gameCreatePasswordUsePrefix: false,
   gameCreateDescription: '',
   verboseFilterLogging: false,
+  liveMatchHighlightDurationMs: 900,
   autoAlwaysShowItems: true,
   autoNoPickup: true,
   sounds: defaultSounds(),

@@ -163,6 +163,11 @@ pub struct AppSettings {
     #[serde(default)]
     pub verbose_filter_logging: bool,
 
+    /// How long the Loot Filter tab's "show matches" mode keeps a rule line
+    /// flashed after it decides a drop, in milliseconds.
+    #[serde(default = "default_live_match_highlight_duration_ms")]
+    pub live_match_highlight_duration_ms: u32,
+
     #[serde(default = "default_auto_always_show_items")]
     pub auto_always_show_items: bool,
 
@@ -210,6 +215,10 @@ fn default_volume() -> f32 {
 
 fn default_notification_duration() -> u32 {
     5000
+}
+
+fn default_live_match_highlight_duration_ms() -> u32 {
+    900
 }
 
 fn default_stack_direction() -> String {
@@ -296,6 +305,7 @@ impl Default for AppSettings {
             game_create_password_use_prefix: false,
             game_create_description: String::new(),
             verbose_filter_logging: false,
+            live_match_highlight_duration_ms: default_live_match_highlight_duration_ms(),
             auto_always_show_items: default_auto_always_show_items(),
             auto_no_pickup: default_auto_no_pickup(),
             sounds: default_sounds(),

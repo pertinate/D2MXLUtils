@@ -1,7 +1,9 @@
 <script lang="ts">
+  import { onDestroy } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
+  import { listen } from '@tauri-apps/api/event';
   import { RulesEditor, type ValidationResult } from '../editor';
-  import { ProfileSelector } from '../components';
+  import { ProfileSelector, Toggle } from '../components';
   import { settingsStore } from '../stores';
 
   type SaveState = 'saved' | 'unsaved' | 'invalid' | 'saving' | 'error';
@@ -18,6 +20,45 @@
   let saveError = $state<string | null>(null);
   let lastSavedText = $state('');
   let inflightSave: Promise<void> | null = null;
+
+  // "Show matches" live highlight — not persisted, resets to off whenever
+  // this tab (re)mounts.
+  let showMatches = $state(false);
+  let rulesEditorRef: RulesEditor;
+
+  async function handleShowMatchesChange(enabled: boolean) {
+    showMatches = enabled;
+    try {
+      await invoke('set_live_match_highlight', { enabled });
+    } catch (e) {
+      console.error('[LootFilterTab] Failed to toggle live match highlight:', e);
+    }
+  }
+
+  $effect(() => {
+    if (!showMatches) return;
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+    listen<number[]>('filter-rule-matched', (event) => {
+      rulesEditorRef?.flashLines(
+        event.payload,
+        settingsStore.settings.liveMatchHighlightDurationMs,
+      );
+    }).then((fn) => {
+      if (cancelled) fn();
+      else unlisten = fn;
+    });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  });
+
+  onDestroy(() => {
+    if (showMatches) {
+      invoke('set_live_match_highlight', { enabled: false }).catch(() => {});
+    }
+  });
 
   async function syncFilterConfig() {
     try {
@@ -188,6 +229,13 @@
     </div>
 
     <div class="header-actions">
+      <span
+        class="show-matches-toggle"
+        title="Flash the rule line that decided each drop as it happens"
+      >
+        <Toggle checked={showMatches} label="Show matches" onchange={handleShowMatchesChange} />
+      </span>
+
       {#if saveState === 'error'}
         <button
           type="button"
@@ -227,6 +275,7 @@
 
   <div class="editor-container">
     <RulesEditor
+      bind:this={rulesEditorRef}
       bind:value={dslText}
       onchange={handleChange}
       onsave={handleSave}
@@ -426,6 +475,13 @@
     display: flex;
     align-items: center;
     gap: var(--space-2, 8px);
+  }
+
+  .show-matches-toggle {
+    display: inline-flex;
+    align-items: center;
+    font-size: var(--text-xs, 12px);
+    color: var(--text-secondary);
   }
 
   .default-mode-badge {
