@@ -5,12 +5,15 @@
 //! a community-run site — fine for one maintainer to run occasionally, not
 //! something every install should repeat).
 //!
-//! The build side is `.github/workflows/build-unique-stats-db.yml`, run
-//! manually (`workflow_dispatch`) whenever the maintainer wants to refresh
-//! it — not tied to app version releases, since the underlying item data
-//! only changes when MXL itself patches. It publishes to a GitHub release
-//! with a fixed tag (`unique-stats-db`, never a version string), so
-//! `updater.rs`'s own release scan skips right over it (it fails that
+//! The build side is `pnpm unique-stats-db:publish`
+//! (`scripts/publish-unique-stats-db.mjs`), run locally by the maintainer
+//! whenever they want to refresh it — not tied to app version releases,
+//! since the underlying item data only changes when MXL itself patches.
+//! Deliberately NOT a CI workflow: the target API blocks GitHub Actions'
+//! runner IPs outright (confirmed live — 403 from Actions, 200 for the
+//! identical request from a normal dev IP). It publishes to a GitHub
+//! release with a fixed tag (`unique-stats-db`, never a version string),
+//! so `updater.rs`'s own release scan skips right over it (it fails that
 //! code's `semver::Version::parse` filter, same as any non-version tag).
 //!
 //! Applying a freshly downloaded file doesn't happen live: the scanner
