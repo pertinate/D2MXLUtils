@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.26.11 — 2026-08-30
+
+### Features
+
+- Feat(unique-stats-db): publish + auto-sync the roll-range template DB (580af1e)
+
+### Other
+
+- 1.26.11 (518cdf1)
+
 ## v1.26.10 — 2026-08-30
 
 ### Bug Fixes
