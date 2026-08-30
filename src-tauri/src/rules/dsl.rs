@@ -300,8 +300,10 @@ pub fn parse_dsl(text: &str) -> Result<FilterConfig, Vec<ParseError>> {
                     let mut fresh = Rule::default();
                     fresh.name_pattern = rule.name_pattern.take();
                     merged.apply_to(&mut fresh);
+                    fresh.source_line = line_num;
                     rules.push(fresh);
                 } else {
+                    rule.source_line = line_num;
                     rules.push(rule);
                 }
             }

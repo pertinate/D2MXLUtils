@@ -91,6 +91,9 @@ struct AppState {
     filter_config: Arc<RwLock<Option<rules::FilterConfig>>>,
     /// When true, scanner logs per-item filter decisions (noisy; opt-in for debugging).
     verbose_filter_logging: Arc<AtomicBool>,
+    /// When true, scanner reports which rule line decided each drop so the
+    /// Loot Filter tab can flash it live ("show matches" mode).
+    live_match_highlight: Arc<AtomicBool>,
     auto_always_show_items: Arc<AtomicBool>,
     auto_no_pickup: Arc<AtomicBool>,
     /// Driven by the reveal-hidden hotkey watcher; mirrored into the hook.
@@ -171,6 +174,7 @@ fn start_scanner_internal(
     is_scanning: Arc<AtomicBool>,
     filter_config: Arc<RwLock<Option<rules::FilterConfig>>>,
     verbose_filter_logging: Arc<AtomicBool>,
+    live_match_highlight: Arc<AtomicBool>,
     auto_always_show_items: Arc<AtomicBool>,
     auto_no_pickup: Arc<AtomicBool>,
     reveal_hidden_active: Arc<AtomicBool>,
@@ -367,6 +371,7 @@ fn start_scanner_internal(
                 }
             }
             scanner.set_verbose_filter_logging(verbose_filter_logging.load(Ordering::SeqCst));
+            scanner.set_live_match_highlight(live_match_highlight.load(Ordering::SeqCst));
 
             // Seed the hook with the current flag so a key already held on
             // attach (e.g. user reopened the game) works on frame one.
@@ -489,6 +494,7 @@ fn start_scanner_internal(
                 scanner.set_verbose_filter_logging(
                     verbose_filter_logging.load(Ordering::SeqCst),
                 );
+                scanner.set_live_match_highlight(live_match_highlight.load(Ordering::SeqCst));
 
                 let current_reveal = reveal_hidden_active.load(Ordering::SeqCst);
                 if current_reveal != last_reveal {
@@ -637,6 +643,13 @@ fn start_scanner_internal(
                     for ev in scanner.drain_goblin_events() {
                         if let Err(e) = app_handle.emit("goblin-detected", &ev) {
                             log_error(&format!("Failed to emit goblin-detected: {}", e));
+                        }
+                    }
+
+                    let matched_lines = scanner.drain_matched_lines();
+                    if !matched_lines.is_empty() {
+                        if let Err(e) = app_handle.emit("filter-rule-matched", &matched_lines) {
+                            log_error(&format!("Failed to emit filter-rule-matched: {}", e));
                         }
                     }
 
@@ -867,6 +880,7 @@ fn spawn_auto_scanner(
     should_auto_scan: Arc<AtomicBool>,
     filter_config: Arc<RwLock<Option<rules::FilterConfig>>>,
     verbose_filter_logging: Arc<AtomicBool>,
+    live_match_highlight: Arc<AtomicBool>,
     auto_always_show_items: Arc<AtomicBool>,
     auto_no_pickup: Arc<AtomicBool>,
     reveal_hidden_active: Arc<AtomicBool>,
@@ -891,6 +905,7 @@ fn spawn_auto_scanner(
                     is_scanning.clone(),
                     filter_config.clone(),
                     verbose_filter_logging.clone(),
+                    live_match_highlight.clone(),
                     auto_always_show_items.clone(),
                     auto_no_pickup.clone(),
                     reveal_hidden_active.clone(),
@@ -1005,6 +1020,12 @@ fn set_verbose_filter_logging(enabled: bool, state: tauri::State<AppState>) {
     state
         .verbose_filter_logging
         .store(enabled, Ordering::SeqCst);
+}
+
+/// Enable or disable the Loot Filter tab's live "show matches" highlight mode.
+#[tauri::command]
+fn set_live_match_highlight(enabled: bool, state: tauri::State<AppState>) {
+    state.live_match_highlight.store(enabled, Ordering::SeqCst);
 }
 
 /// Enable or disable auto-toggling of MXL's "always show items" on game entry.
@@ -2229,6 +2250,7 @@ fn main() {
                 should_auto_scan: Arc::new(AtomicBool::new(true)),
                 filter_config: Arc::new(RwLock::new(initial_filter_config)),
                 verbose_filter_logging: Arc::new(AtomicBool::new(false)),
+                live_match_highlight: Arc::new(AtomicBool::new(false)),
                 auto_always_show_items: Arc::new(AtomicBool::new(true)),
                 auto_no_pickup: Arc::new(AtomicBool::new(true)),
                 reveal_hidden_active: Arc::new(AtomicBool::new(false)),
@@ -2246,6 +2268,7 @@ fn main() {
             let should_auto_scan = state.should_auto_scan.clone();
             let filter_config = state.filter_config.clone();
             let verbose_filter_logging = state.verbose_filter_logging.clone();
+            let live_match_highlight = state.live_match_highlight.clone();
             let auto_always_show_items = state.auto_always_show_items.clone();
             let auto_no_pickup = state.auto_no_pickup.clone();
             let reveal_hidden_active = state.reveal_hidden_active.clone();
@@ -2362,6 +2385,7 @@ fn main() {
                 should_auto_scan.clone(),
                 filter_config.clone(),
                 verbose_filter_logging.clone(),
+                live_match_highlight.clone(),
                 auto_always_show_items.clone(),
                 auto_no_pickup.clone(),
                 reveal_hidden_active.clone(),
@@ -2432,6 +2456,7 @@ fn main() {
             clear_loot_history,
             set_filter_config,
             set_verbose_filter_logging,
+            set_live_match_highlight,
             set_auto_always_show_items,
             set_auto_no_pickup,
             set_breakpoints_polling,

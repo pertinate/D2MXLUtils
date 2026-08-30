@@ -4,6 +4,7 @@
   import { settingsStore, updaterStore, uniqueStatsDbStore, type HotkeyConfig } from '../stores';
 
   let verboseFilterLogging = $derived(settingsStore.settings.verboseFilterLogging);
+  let liveMatchHighlightDurationMs = $derived(settingsStore.settings.liveMatchHighlightDurationMs);
   let autoAlwaysShowItems = $derived(settingsStore.settings.autoAlwaysShowItems);
   let autoNoPickup = $derived(settingsStore.settings.autoNoPickup);
   let dpsMeterEnabled = $derived(settingsStore.settings.dpsMeter?.enabled ?? false);
@@ -211,6 +212,11 @@
 
   function handleVerboseLoggingChange(enabled: boolean) {
     settingsStore.setVerboseFilterLogging(enabled);
+  }
+
+  function setLiveMatchHighlightDuration(value: number) {
+    const clamped = Math.max(200, Math.min(5000, value));
+    settingsStore.set('liveMatchHighlightDurationMs', clamped);
   }
 
   function handleAutoAlwaysShowItemsChange(enabled: boolean) {
@@ -455,6 +461,28 @@
 
     <div class="setting-row">
       <div class="setting-info">
+        <span class="setting-label">Show matches highlight duration</span>
+        <span class="setting-hint"
+          >How long the Loot Filter tab's "Show matches" mode keeps a rule line flashed (0.2-5s).</span
+        >
+      </div>
+      <div class="setting-control">
+        <input
+          type="range"
+          id="live-match-highlight-duration-slider"
+          min="200"
+          max="5000"
+          step="100"
+          value={liveMatchHighlightDurationMs}
+          oninput={(e) => setLiveMatchHighlightDuration(parseInt(e.currentTarget.value))}
+          class="slider"
+        />
+        <span class="setting-value">{(liveMatchHighlightDurationMs / 1000).toFixed(1)}s</span>
+      </div>
+    </div>
+
+    <div class="setting-row">
+      <div class="setting-info">
         <span class="setting-label">App data folder</span>
         <span class="setting-hint">Settings, profiles, logs</span>
       </div>
@@ -563,6 +591,52 @@
   .update-control {
     display: flex;
     align-items: center;
+  }
+
+  .setting-control {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+  }
+
+  .slider {
+    width: 160px;
+    height: 6px;
+    appearance: none;
+    background: var(--bg-tertiary);
+    border-radius: var(--radius-full);
+    cursor: pointer;
+  }
+
+  .slider::-webkit-slider-thumb {
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    background: var(--accent-primary);
+    border-radius: var(--radius-full);
+    cursor: pointer;
+    transition: transform 0.1s ease;
+  }
+
+  .slider::-webkit-slider-thumb:hover {
+    transform: scale(1.1);
+  }
+
+  .slider::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    background: var(--accent-primary);
+    border: none;
+    border-radius: var(--radius-full);
+    cursor: pointer;
+  }
+
+  .setting-value {
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    color: var(--text-primary);
+    min-width: 50px;
+    text-align: right;
   }
 
   .update-status {

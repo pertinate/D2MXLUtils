@@ -20,6 +20,7 @@
 
   import { d2rules } from './d2rules-language';
   import { d2rulesFolding } from './d2rules-folding';
+  import { matchHighlightField, setFlashLinesEffect } from './d2rules-match-highlight';
   import { getDarkThemeExtensions, getLightThemeExtensions } from './d2rules-theme';
   import { d2rulesLinter, type ValidationResult } from './d2rules-linter';
   import { d2rulesAutocomplete } from './d2rules-autocomplete';
@@ -62,6 +63,7 @@
   let view: EditorView | null = null;
   const themeCompartment = new Compartment();
   let themeObserver: MutationObserver | null = null;
+  let flashClearTimer: ReturnType<typeof setTimeout> | null = null;
 
   // Track if we're updating from external value change
   let isExternalUpdate = false;
@@ -96,6 +98,9 @@
       codeFolding(),
       foldGutter(),
       d2rulesFolding,
+
+      // "Show matches" live highlight (see flashLines() below)
+      matchHighlightField,
 
       // Keymaps
       keymap.of([
@@ -182,6 +187,7 @@
   onDestroy(() => {
     themeObserver?.disconnect();
     themeObserver = null;
+    if (flashClearTimer) clearTimeout(flashClearTimer);
     view?.destroy();
     view = null;
   });
@@ -206,6 +212,21 @@
    */
   export function focus() {
     view?.focus();
+  }
+
+  /**
+   * Briefly highlight the given 1-based source lines ("show matches" mode).
+   * Replaces any lines still flashing from a previous call and clears after
+   * `holdMs` of inactivity.
+   */
+  export function flashLines(lines: number[], holdMs = 900) {
+    if (!view) return;
+    view.dispatch({ effects: setFlashLinesEffect.of(lines) });
+    if (flashClearTimer) clearTimeout(flashClearTimer);
+    flashClearTimer = setTimeout(() => {
+      flashClearTimer = null;
+      view?.dispatch({ effects: setFlashLinesEffect.of([]) });
+    }, holdMs);
   }
 
   /**
@@ -280,6 +301,13 @@
 
   .rules-editor :global(.cm-diagnostic-info) {
     border-left: 3px solid var(--quality-magic, #6969ff);
+  }
+
+  /* "Show matches" live highlight — the rule line that just decided a
+     drop's outcome. */
+  .rules-editor :global(.cm-rule-flash) {
+    background: color-mix(in srgb, var(--accent-primary, #c7b377) 28%, transparent);
+    border-left: 3px solid var(--accent-primary, #c7b377);
   }
 
   .rules-editor :global(.cm-tooltip-hover-explain) {
