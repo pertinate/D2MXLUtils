@@ -4,7 +4,7 @@
 #[cfg(target_os = "windows")]
 use std::ffi::c_void;
 #[cfg(target_os = "windows")]
-use windows::Win32::Foundation::HANDLE;
+use windows::Win32::Foundation::{CloseHandle, HANDLE};
 #[cfg(target_os = "windows")]
 use windows::Win32::System::Memory::{
     VirtualAllocEx, MEM_COMMIT, MEM_RESERVE, PAGE_EXECUTE_READWRITE,
@@ -95,9 +95,21 @@ pub fn remote_thread(
         WaitForSingleObject(thread, INFINITE);
 
         let mut exit_code: u32 = 0;
-        GetExitCodeThread(thread, &mut exit_code)
-            .map_err(|e| format!("GetExitCodeThread failed: {}", e))?;
+        let result = GetExitCodeThread(thread, &mut exit_code)
+            .map_err(|e| format!("GetExitCodeThread failed: {}", e));
 
+        // CreateRemoteThread's handle was otherwise never closed — this
+        // function runs on every injected remote-function call (item
+        // name/stat lookups, automap cell creation, ...), called
+        // repeatedly during normal play, so each call leaked one kernel
+        // thread handle. Over a long session with hundreds/thousands of
+        // item drops that's a large, steadily growing handle count —
+        // exactly the shape of a Windows-specific "gets slower over
+        // hours" bug. Close unconditionally, after reading the exit code
+        // but regardless of whether that read succeeded.
+        let _ = CloseHandle(thread);
+
+        result?;
         Ok(exit_code)
     }
 }
