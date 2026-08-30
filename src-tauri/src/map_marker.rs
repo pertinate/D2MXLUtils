@@ -14,9 +14,12 @@
 //! A per-area `persistent` cache keeps markers sticky when the player walks
 //! past an item and its room unloads. Entries are evicted either when BFS
 //! misses them AND the player is within `PICKUP_THRESHOLD_SUBTILES` (assumed
-//! pickup), or after `MARKER_TTL` without a BFS sighting (walked away and
-//! never came back). Cross-game transitions are handled by the explicit
-//! `clear_markers` signal from `main.rs`.
+//! pickup), after `MARKER_TTL` without a BFS sighting (walked away and
+//! never came back), or on a real area/act change (a player-subtile jump
+//! past `AREA_CHANGE_JUMP_SUBTILES` — see its doc comment for why the
+//! layer pointer alone can't be used to detect this). Cross-game
+//! transitions are handled separately by the explicit `clear_markers`
+//! signal from `main.rs`.
 //!
 //! Never mutate `pFloors` or `pWalls` — that corrupts revealed terrain.
 //! See `docs/map-marker-reverse-engineering.md` for offset calibration.
@@ -52,6 +55,20 @@ pub const PICKUP_THRESHOLD_SUBTILES: i32 = 32;
 /// in long sessions; cross-game wipe is handled by `clear_markers`.
 pub const MARKER_TTL: Duration = Duration::from_secs(20 * 60);
 
+/// Player-subtile jump above which a tick is treated as a true area/act
+/// change (waypoint, portal, Act transition) rather than ordinary
+/// movement — walking covers 2-3 subtiles per tick, even Teleport caps
+/// around 16. `layer` (the automap layer pointer `tick` already tracks)
+/// can't be used for this: it also flips on ordinary Room2 crossings
+/// within the SAME area, which is exactly why the persistent cache isn't
+/// wiped there. Without a real area-change signal, `persistent` was only
+/// ever cleared by a brand-new game session (`clear_markers`, set once on
+/// `ingame && !was_ingame`) — confirmed live: a marker placed in one
+/// act's town kept reappearing (at stale, now-meaningless cell
+/// coordinates) in the next act's town after a waypoint trip, since
+/// nothing else cleared it in between.
+pub const AREA_CHANGE_JUMP_SUBTILES: i32 = 60;
+
 pub struct MapMarkerManager {
     last_layer: u32,
     /// Remote address of the slot whose value = our chain head — the
@@ -68,6 +85,11 @@ pub struct MapMarkerManager {
     /// Last-stamp per unit_id for TTL. Kept in lockstep with `persistent`
     /// (orphans are GC'd at the end of `reconcile_persistent`).
     last_seen: HashMap<u32, Instant>,
+    /// Last known player subtile position, tracked across ticks. Not
+    /// reset by a `None` reading (e.g. mid-loading-screen) — we want to
+    /// compare against the last *real* position once the player reappears,
+    /// not treat "no reading yet" as a jump. See `AREA_CHANGE_JUMP_SUBTILES`.
+    last_player_sub: Option<(i32, i32)>,
 }
 
 impl MapMarkerManager {
@@ -79,6 +101,7 @@ impl MapMarkerManager {
             last_hash: 0,
             persistent: HashMap::new(),
             last_seen: HashMap::new(),
+            last_player_sub: None,
         }
     }
 
@@ -95,6 +118,7 @@ impl MapMarkerManager {
         self.persistent.clear();
         self.last_seen.clear();
         self.last_layer = 0;
+        self.last_player_sub = None;
         Ok(())
     }
 
@@ -116,6 +140,20 @@ impl MapMarkerManager {
             self.placed.clear();
             self.last_hash = 0;
             return Ok(());
+        }
+
+        // True area/act change: wipe the persistent cache itself, not just
+        // the chain bookkeeping the layer-switch check below handles —
+        // see AREA_CHANGE_JUMP_SUBTILES for why the layer pointer alone
+        // can't be used for this. Compares against the last real position
+        // regardless of how many `None` (out-of-world) ticks came between
+        // — a loading screen doesn't itself reset `last_player_sub`.
+        if let Some((px, py)) = player_sub {
+            if is_area_change(self.last_player_sub, (px, py)) {
+                self.persistent.clear();
+                self.last_seen.clear();
+            }
+            self.last_player_sub = Some((px, py));
         }
 
         // Layer switch (Room2 crossing or layer reallocation): forget the
@@ -252,6 +290,20 @@ impl MapMarkerManager {
         self.placed = cells;
         Ok(())
     }
+}
+
+/// Whether `current` is far enough from `last` (Manhattan distance in
+/// subtiles) to only be explained by a waypoint/portal/Act transition —
+/// see `AREA_CHANGE_JUMP_SUBTILES`. `last` being `None` (no prior reading
+/// yet, e.g. right after `clear()`) is never treated as a jump. Pure so
+/// it can be unit-tested without a live process.
+fn is_area_change(last: Option<(i32, i32)>, current: (i32, i32)) -> bool {
+    let Some((lx, ly)) = last else {
+        return false;
+    };
+    let (px, py) = current;
+    let jump = (px - lx).abs() + (py - ly).abs();
+    jump >= AREA_CHANGE_JUMP_SUBTILES
 }
 
 /// Reconcile `persistent` against this tick's BFS results. Pure so it can
@@ -505,6 +557,23 @@ mod tests {
         assert_eq!(sub_to_cell(5, 5), (0, 8));
         assert_eq!(sub_to_cell(10, 5), (8, 12));
         assert_eq!(sub_to_cell(1, 0), (2, 1));
+    }
+
+    #[test]
+    fn is_area_change_ignores_ordinary_movement() {
+        assert!(!is_area_change(Some((100, 100)), (102, 101))); // walking
+        assert!(!is_area_change(Some((100, 100)), (110, 105))); // teleport
+    }
+
+    #[test]
+    fn is_area_change_detects_waypoint_jump() {
+        assert!(is_area_change(Some((100, 100)), (200, 200)));
+        assert!(is_area_change(Some((100, 100)), (100, 160))); // exactly at threshold
+    }
+
+    #[test]
+    fn is_area_change_false_with_no_prior_reading() {
+        assert!(!is_area_change(None, (5000, 5000)));
     }
 
     #[test]
