@@ -14,11 +14,12 @@
     highlightSpecialChars,
   } from '@codemirror/view';
   import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
-  import { bracketMatching } from '@codemirror/language';
+  import { bracketMatching, codeFolding, foldGutter, foldKeymap } from '@codemirror/language';
   import { acceptCompletion, closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
   import { lintGutter, setDiagnostics } from '@codemirror/lint';
 
   import { d2rules } from './d2rules-language';
+  import { d2rulesFolding } from './d2rules-folding';
   import { getDarkThemeExtensions, getLightThemeExtensions } from './d2rules-theme';
   import { d2rulesLinter, type ValidationResult } from './d2rules-linter';
   import { d2rulesAutocomplete } from './d2rules-autocomplete';
@@ -91,12 +92,18 @@
       bracketMatching(),
       closeBrackets(),
 
+      // Collapse group rule bodies (`[...] { ... }`) to a single line
+      codeFolding(),
+      foldGutter(),
+      d2rulesFolding,
+
       // Keymaps
       keymap.of([
         ...closeBracketsKeymap,
         { key: 'Tab', run: acceptCompletion },
         ...defaultKeymap,
         ...historyKeymap,
+        ...foldKeymap,
         indentWithTab,
       ]),
 
@@ -214,6 +221,7 @@
 <style>
   .rules-editor {
     height: 100%;
+    max-height: 100%;
     overflow: hidden;
     border-radius: var(--radius-md, 8px);
     border: 1px solid var(--border-primary, #2a2a35);
@@ -222,10 +230,12 @@
 
   .rules-editor :global(.cm-editor) {
     height: 100%;
+    max-height: 100%;
   }
 
   .rules-editor :global(.cm-scroller) {
     overflow: auto;
+    max-height: 100%;
     font-family: var(--font-mono, 'Fira Code', 'Consolas', monospace);
   }
 
