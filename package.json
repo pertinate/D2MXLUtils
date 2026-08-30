@@ -15,6 +15,7 @@
     "preview": "vite preview",
     "prepare": "husky",
     "release": "node scripts/release.mjs",
+    "unique-stats-db:publish": "node scripts/publish-unique-stats-db.mjs",
     "tauri": "tauri",
     "version": "node scripts/sync-version.mjs"
   },

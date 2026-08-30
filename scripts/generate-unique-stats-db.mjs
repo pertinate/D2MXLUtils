@@ -3,12 +3,14 @@
 // MXL item API the in-app search overlay uses (see
 // `src-tauri/src/mxl_item_api.rs`).
 //
-// Run via .github/workflows/build-unique-stats-db.yml (workflow_dispatch,
-// manual — whenever the maintainer wants to refresh it, not on every
-// commit) — that publishes the output to a GitHub release, which clients
-// download automatically instead of every install crawling this same
-// third-party API themselves (see unique_stats_db_sync.rs). Can still be
-// run locally the same way for testing.
+// Run locally via `pnpm unique-stats-db:publish` (scripts/publish-unique-
+// stats-db.mjs), which calls this and then publishes the result to a
+// GitHub release — clients download that automatically instead of every
+// install crawling this same third-party API themselves (see
+// unique_stats_db_sync.rs). NOT run from CI: the target API blocks
+// GitHub Actions' runner IPs outright (confirmed live — 403 from Actions,
+// 200 for the identical request from a normal dev IP), so this has to run
+// from an actual maintainer machine.
 //
 // Usage: node scripts/generate-unique-stats-db.mjs [output-path]
 // Default output path: ~/.local/share/com.d2mxlutils.app/unique-stats-db.json
