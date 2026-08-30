@@ -79,6 +79,14 @@ export const darkTheme = EditorView.theme(
     '.cm-foldGutter': {
       width: '16px',
     },
+    '.cm-foldPlaceholder': {
+      backgroundColor: 'var(--bg-elevated, #252530)',
+      border: '1px solid var(--border-primary, #2a2a35)',
+      color: 'var(--text-muted, #999)',
+      borderRadius: 'var(--radius-sm, 4px)',
+      margin: '0 2px',
+      padding: '0 4px',
+    },
     '&.cm-focused .cm-cursor': {
       borderLeftColor: 'var(--accent-primary, #c7b377)',
     },
@@ -140,6 +148,17 @@ export const lightTheme = EditorView.theme(
     '.cm-lineNumbers .cm-gutterElement': {
       padding: '0 8px',
       minWidth: '2.25em',
+    },
+    '.cm-foldGutter': {
+      width: '16px',
+    },
+    '.cm-foldPlaceholder': {
+      backgroundColor: 'var(--bg-elevated, #ececec)',
+      border: '1px solid var(--border-primary, #e0e0e0)',
+      color: 'var(--text-muted, #777)',
+      borderRadius: 'var(--radius-sm, 4px)',
+      margin: '0 2px',
+      padding: '0 4px',
     },
     '&.cm-focused .cm-cursor': {
       borderLeftColor: 'var(--accent-primary, #9a7b4f)',
