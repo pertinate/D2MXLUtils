@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.26.14 — 2026-08-30
+
+### Features
+
+- Feat(rules-editor): add code folding for group rules (19c0ff8)
+
+### Other
+
+- 1.26.14 (d750232)
+
 ## v1.26.13 — 2026-08-30
 
 ### Bug Fixes
