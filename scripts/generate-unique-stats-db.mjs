@@ -1,8 +1,14 @@
 // Builds a local database of unique/set item stat templates (with roll
 // ranges, e.g. "+(6 to 10) to all Attributes") by crawling the same public
 // MXL item API the in-app search overlay uses (see
-// `src-tauri/src/mxl_item_api.rs`). Local/dev-only for now — run manually,
-// writes to your app data dir. Will move to CI + bundled resource later.
+// `src-tauri/src/mxl_item_api.rs`).
+//
+// Run via .github/workflows/build-unique-stats-db.yml (workflow_dispatch,
+// manual — whenever the maintainer wants to refresh it, not on every
+// commit) — that publishes the output to a GitHub release, which clients
+// download automatically instead of every install crawling this same
+// third-party API themselves (see unique_stats_db_sync.rs). Can still be
+// run locally the same way for testing.
 //
 // Usage: node scripts/generate-unique-stats-db.mjs [output-path]
 // Default output path: ~/.local/share/com.d2mxlutils.app/unique-stats-db.json

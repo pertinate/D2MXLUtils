@@ -5,7 +5,13 @@
   import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
   import { onMount } from 'svelte';
   import { Tabs, ThemeToggle, UpdateButton } from '../components';
-  import { windowState, itemsDictionaryStore, updaterStore, type WindowState } from '../stores';
+  import {
+    windowState,
+    itemsDictionaryStore,
+    updaterStore,
+    uniqueStatsDbStore,
+    type WindowState,
+  } from '../stores';
   import { GeneralTab, LootFilterTab, NotificationsTab, BreakpointsTab, SoundsTab } from './index';
 
   // Scanner and game status from backend
@@ -107,6 +113,12 @@
       updaterStore.check(false);
     }, 3000);
 
+    // Same delayed-silent-check treatment — just populates the General tab's
+    // status text; the actual download always stays a manual button click.
+    const uniqueDbCheckTimer = setTimeout(() => {
+      uniqueStatsDbStore.check();
+    }, 3000);
+
     // Listen for scanner status
     listen<string>('scanner-status', (event) => {
       scannerStatus = event.payload as typeof scannerStatus;
@@ -151,6 +163,7 @@
     return () => {
       if (saveTimeout) clearTimeout(saveTimeout);
       clearTimeout(updateCheckTimer);
+      clearTimeout(uniqueDbCheckTimer);
       unlisteners.forEach((u) => u());
       itemsDictionaryStore.destroy();
       updaterStore.destroyListeners();

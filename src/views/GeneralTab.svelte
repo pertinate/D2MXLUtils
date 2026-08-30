@@ -1,7 +1,7 @@
 <script lang="ts">
   import { invoke } from '@tauri-apps/api/core';
   import { Button, HotkeyInput, Toggle } from '../components';
-  import { settingsStore, updaterStore, type HotkeyConfig } from '../stores';
+  import { settingsStore, updaterStore, uniqueStatsDbStore, type HotkeyConfig } from '../stores';
 
   let verboseFilterLogging = $derived(settingsStore.settings.verboseFilterLogging);
   let autoAlwaysShowItems = $derived(settingsStore.settings.autoAlwaysShowItems);
@@ -131,6 +131,46 @@
         return s.phase === 'install'
           ? 'Update failed — likely antivirus blocking. Use the "Download manually" button in the top right.'
           : 'Failed to check for updates. Check your connection.';
+    }
+  }
+
+  let uniqueDbState = $derived(uniqueStatsDbStore.state);
+  let uniqueDbButtonDisabled = $derived(
+    uniqueDbState.kind === 'checking' || uniqueDbState.kind === 'downloading',
+  );
+
+  function uniqueDbStatusText(): string {
+    const s = uniqueDbState;
+    switch (s.kind) {
+      case 'idle':
+        return '';
+      case 'checking':
+        return 'Checking…';
+      case 'not_downloaded':
+        return 'Not downloaded yet — click "Download" to enable roll-range annotations';
+      case 'up_to_date':
+        return 'Up to date';
+      case 'available':
+        return 'An updated database is available — click "Download"';
+      case 'downloading':
+        return 'Downloading…';
+      case 'downloaded':
+        return 'Downloaded — restart D2MXLUtils to apply';
+      case 'error':
+        return `Failed: ${s.message}`;
+    }
+  }
+
+  function uniqueDbButtonLabel(): string {
+    const s = uniqueDbState;
+    return s.kind === 'not_downloaded' || s.kind === 'available' ? 'Download' : 'Check for update';
+  }
+
+  function handleUniqueDbButtonClick() {
+    if (uniqueDbState.kind === 'not_downloaded' || uniqueDbState.kind === 'available') {
+      uniqueStatsDbStore.download();
+    } else {
+      uniqueStatsDbStore.check();
     }
   }
 
@@ -446,6 +486,32 @@
     {#if updateStatusText()}
       <div class="update-status" class:is-error={updaterState.kind === 'error'}>
         {updateStatusText()}
+      </div>
+    {/if}
+
+    <div class="setting-row">
+      <div class="setting-info">
+        <span class="setting-label">Unique/set roll-range database</span>
+        <span class="setting-hint">
+          Adds possible roll ranges to unique/set item stats. Maintainer-built; downloading it skips
+          every client crawling the item API themselves.
+        </span>
+      </div>
+      <div class="update-control">
+        <Button
+          variant="secondary"
+          size="sm"
+          disabled={uniqueDbButtonDisabled}
+          onclick={handleUniqueDbButtonClick}
+        >
+          {uniqueDbButtonLabel()}
+        </Button>
+      </div>
+    </div>
+
+    {#if uniqueDbStatusText()}
+      <div class="update-status" class:is-error={uniqueDbState.kind === 'error'}>
+        {uniqueDbStatusText()}
       </div>
     {/if}
   </div>

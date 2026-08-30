@@ -2,11 +2,10 @@
 //! e.g. "+(6 to 10) to all Attributes"), built offline by
 //! `scripts/generate-unique-stats-db.mjs` (crawls the public MXL item API
 //! the search overlay already uses — see `mxl_item_api.rs`) and loaded
-//! here from disk. No network access at runtime.
-//!
-//! Local/dev-only for now: the file is generated manually into
-//! `app_data_dir/unique-stats-db.json`, not bundled into release builds
-//! yet (that's a follow-up once this is validated against real drops).
+//! here from disk. This module itself makes no network access at runtime —
+//! `unique_stats_db_sync.rs` is what keeps `app_data_dir/unique-stats-db.json`
+//! populated, downloading a maintainer-built copy from GitHub instead of
+//! every client crawling the API themselves.
 //!
 //! Correlating a dropped item back to its DB entry is best-effort: our own
 //! `name` field has our own "TU"/"SU"/"SSU"/"SSSU" suffix appended

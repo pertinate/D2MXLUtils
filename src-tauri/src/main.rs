@@ -27,6 +27,7 @@ mod settings;
 mod sounds;
 mod speedcalc_data;
 mod unique_stats_db;
+mod unique_stats_db_sync;
 mod updater;
 mod weapon_families;
 
@@ -2436,6 +2437,8 @@ fn main() {
             set_breakpoints_polling,
             get_speedcalc_data,
             refresh_speedcalc_data,
+            unique_stats_db_sync::check_unique_stats_db_update,
+            unique_stats_db_sync::download_unique_stats_db,
             get_weapon_base_catalog,
             sync_overlay_with_game,
             set_overlay_interactive,

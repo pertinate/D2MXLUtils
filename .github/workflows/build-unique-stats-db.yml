@@ -1,0 +1,54 @@
+name: Build unique stats DB
+
+# Manual only — run whenever the maintainer wants to refresh the published
+# unique/set roll-range template DB (see unique_stats_db_sync.rs for the
+# client side). Not tied to app version releases: the underlying item data
+# only changes when MXL itself patches, not on every commit/merge.
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        env:
+          HUSKY: 0
+
+      # Paced crawl against a third-party community site (~1 req/sec,
+      # ~900 entries) — this is why it's a manual, occasional job rather
+      # than something every client or every CI run repeats.
+      - name: Generate unique stats DB
+        run: node scripts/generate-unique-stats-db.mjs ./unique-stats-db.json
+
+      # Fixed tag, never a version string — deliberately distinct from
+      # release.yml's `v*.*.*` tags so this never gets picked up by the
+      # app's own updater.rs (which filters releases through
+      # semver::Version::parse and skips anything that doesn't parse).
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: unique-stats-db
+          name: Unique/Set Stats DB
+          body: |
+            Auto-generated unique/set item stat template database (roll ranges).
+            Downloaded automatically by the app — not a versioned app release.
+          files: ./unique-stats-db.json
+          draft: false
+          prerelease: false
