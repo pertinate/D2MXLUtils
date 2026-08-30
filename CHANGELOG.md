@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.26.15 — 2026-08-30
+
+### Features
+
+- Feat(loot-filter): add live "show matches" rule highlighting (aeb783f)
+
+### Other
+
+- 1.26.15 (5aef644)
+
 ## v1.26.14 — 2026-08-30
 
 ### Features
