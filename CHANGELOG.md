@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.26.9 — 2026-08-30
+
+### Bug Fixes
+
+- Fix(windows): close CreateRemoteThread's handle — was leaked on every injected call (9d012a9)
+
+### Other
+
+- 1.26.9 (e76557b)
+
 ## v1.26.8 — 2026-08-29
 
 ### Bug Fixes
