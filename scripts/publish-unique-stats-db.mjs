@@ -21,6 +21,12 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const outputPath = path.join(__dirname, "..", "unique-stats-db.json");
 const TAG = "unique-stats-db";
+// Explicit, not inferred from the current directory's git remotes: this
+// repo typically has both `origin` (the read-only upstream,
+// synonymouse/D2MXLUtils) and a personal fork remote, and `gh` picking the
+// wrong one fails with a 404 rather than anything obviously
+// repo-related — confirmed live the first time this ran.
+const REPO = "pertinate/D2MXLUtils";
 
 console.log("Generating unique-stats-db.json ...");
 execFileSync(
@@ -31,7 +37,9 @@ execFileSync(
 
 function releaseExists() {
   try {
-    execFileSync("gh", ["release", "view", TAG], { stdio: "ignore" });
+    execFileSync("gh", ["release", "view", TAG, "--repo", REPO], {
+      stdio: "ignore",
+    });
     return true;
   } catch {
     return false;
@@ -40,9 +48,11 @@ function releaseExists() {
 
 if (releaseExists()) {
   console.log(`Uploading to existing "${TAG}" release ...`);
-  execFileSync("gh", ["release", "upload", TAG, outputPath, "--clobber"], {
-    stdio: "inherit",
-  });
+  execFileSync(
+    "gh",
+    ["release", "upload", TAG, outputPath, "--repo", REPO, "--clobber"],
+    { stdio: "inherit" },
+  );
 } else {
   console.log(`Creating "${TAG}" release ...`);
   execFileSync(
@@ -52,6 +62,8 @@ if (releaseExists()) {
       "create",
       TAG,
       outputPath,
+      "--repo",
+      REPO,
       "--title",
       "Unique/Set Stats DB",
       "--notes",
