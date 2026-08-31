@@ -1,5 +1,20 @@
 # Changelog
 
+## v1.26.17 — 2026-08-31
+
+### Bug Fixes
+
+- Fix(rules-editor): persist group-rule fold state across tab switches and restarts (5ce20df)
+
+### Documentation
+
+- Docs: document release:skip convention for doc-only PRs (51b2827)
+- Docs: consolidate AGENTS.md into CLAUDE.md (8fdd673)
+
+### Other
+
+- 1.26.17 (cd05ef8)
+
 ## v1.26.16 — 2026-08-31
 
 ### Features
