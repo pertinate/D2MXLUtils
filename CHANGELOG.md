@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.26.18 — 2026-08-31
+
+### Features
+
+- Feat(rules-editor): highlight and autocomplete class/level DSL keywords (a851751)
+
+### Other
+
+- 1.26.18 (5c17c60)
+
 ## v1.26.17 — 2026-08-31
 
 ### Bug Fixes
