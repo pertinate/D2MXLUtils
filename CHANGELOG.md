@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.26.16 — 2026-08-31
+
+### Features
+
+- Feat(rules-editor): autocomplete bare DSL keywords (3a0e757)
+
+### Other
+
+- 1.26.16 (14af5a9)
+
 ## v1.26.15 — 2026-08-30
 
 ### Features
