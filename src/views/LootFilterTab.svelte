@@ -355,12 +355,12 @@
             <h4>Level</h4>
             <ul>
               <li>
-                <span class="kw-socket">min_clvl20</span>,
-                <span class="kw-socket">max_clvl99</span> (char level)
+                <span class="kw-level">min_clvl20</span>,
+                <span class="kw-level">max_clvl99</span> (char level)
               </li>
               <li>
-                <span class="kw-socket">min_ilvl40</span>,
-                <span class="kw-socket">max_ilvl99</span> (item level)
+                <span class="kw-level">min_ilvl40</span>,
+                <span class="kw-level">max_ilvl99</span> (item level)
               </li>
             </ul>
           </div>
@@ -369,17 +369,20 @@
             <h4>Class</h4>
             <ul>
               <li>
-                <span class="kw-quality">amazon</span>,
-                <span class="kw-quality">sorceress</span>,
-                <span class="kw-quality">necromancer</span>
+                <span class="kw-class">amazon</span> (<span class="kw-class">zon</span>),
+                <span class="kw-class">sorceress</span> (<span class="kw-class">sorc</span>)
               </li>
               <li>
-                <span class="kw-quality">paladin</span>,
-                <span class="kw-quality">barbarian</span>
+                <span class="kw-class">necromancer</span> (<span class="kw-class">necro</span>),
+                <span class="kw-class">paladin</span> (<span class="kw-class">pal</span>,
+                <span class="kw-class">pally</span>)
               </li>
               <li>
-                <span class="kw-quality">druid</span>,
-                <span class="kw-quality">assassin</span>
+                <span class="kw-class">barbarian</span> (<span class="kw-class">barb</span>),
+                <span class="kw-class">druid</span> (<span class="kw-class">dru</span>)
+              </li>
+              <li>
+                <span class="kw-class">assassin</span> (<span class="kw-class">sin</span>)
               </li>
             </ul>
           </div>
@@ -703,6 +706,14 @@
     color: #7caa70;
     font-weight: 600;
   }
+  .kw-class {
+    color: #f07178;
+    font-weight: 600;
+  }
+  .kw-level {
+    color: #82aaff;
+    font-weight: 600;
+  }
 
   :global([data-theme='light']) .kw-quality {
     color: #555555;
@@ -727,6 +738,12 @@
   }
   :global([data-theme='light']) .kw-stat {
     color: #116611;
+  }
+  :global([data-theme='light']) .kw-class {
+    color: #c2185b;
+  }
+  :global([data-theme='light']) .kw-level {
+    color: #1565c0;
   }
 
   /* Literal color swatches: each color name is rendered in its own color

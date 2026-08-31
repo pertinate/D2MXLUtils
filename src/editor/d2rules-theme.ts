@@ -20,6 +20,8 @@ const darkPalette = {
   socket: '#6aa9ff',
   action: '#e53935',
   notification: '#c4b870',
+  class: '#f07178',
+  level: '#82aaff',
 };
 
 const lightPalette = {
@@ -36,6 +38,8 @@ const lightPalette = {
   socket: '#1565c0',
   action: '#d32f2f',
   notification: '#ad1457',
+  class: '#c2185b',
+  level: '#1565c0',
 };
 
 /**
@@ -225,6 +229,8 @@ function buildHighlighting(p: typeof darkPalette) {
         fontWeight: '700',
       },
       { tag: d2rulesTags.unknown, color: p.unknown },
+      { tag: d2rulesTags.class, color: p.class, fontWeight: '600' },
+      { tag: d2rulesTags.level, color: p.level, fontWeight: '600' },
     ]),
   );
 }
