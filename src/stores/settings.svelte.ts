@@ -103,6 +103,9 @@ export interface AppSettings {
   /** Centralized positions for overlay widgets/windows, keyed by id.
    *  See `src/lib/overlay-widgets.ts`. Percent of overlay size. */
   widgetPositions: Record<string, WidgetPosition>;
+  /** Collapsed group-rule line numbers in the Loot Filter editor, keyed by
+   *  profile name, so folds survive switching tabs and restarting the app. */
+  foldedLines: Record<string, number[]>;
 }
 
 /** Window state interface */
@@ -193,6 +196,7 @@ const DEFAULT_SETTINGS: AppSettings = {
     hotkeyReset: null,
   },
   widgetPositions: {},
+  foldedLines: {},
 };
 
 /** Settings store singleton */

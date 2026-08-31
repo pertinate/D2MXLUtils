@@ -201,6 +201,14 @@
 
   // handleProfileLoad covers everything; this callback is just API plumbing.
   function handleProfileSelect(_profile: { name: string } | null) {}
+
+  function handleFoldsChange(lines: number[]) {
+    if (!selectedProfile) return;
+    settingsStore.set('foldedLines', {
+      ...settingsStore.settings.foldedLines,
+      [selectedProfile]: lines,
+    });
+  }
 </script>
 
 <section class="loot-filter-tab">
@@ -280,6 +288,8 @@
       onchange={handleChange}
       onsave={handleSave}
       onvalidate={handleValidation}
+      initialFoldedLines={settingsStore.settings.foldedLines[selectedProfile] ?? []}
+      onFoldsChange={handleFoldsChange}
     />
   </div>
 
