@@ -284,6 +284,7 @@ export const autocompleteTheme = EditorView.baseTheme({
     fontFamily: 'var(--font-mono, inherit)',
   },
   '.cm-completionIcon-base::after': { content: '""' },
+  '.cm-completionIcon-keyword::after': { content: '""' },
   '.cm-completionIcon-set::after': { content: '"set"' },
   '.cm-completionIcon-tu::after': { content: '"TU"' },
   '.cm-completionIcon-su::after': { content: '"SU"' },

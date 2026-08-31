@@ -226,3 +226,37 @@ export function d2rules(): LanguageSupport {
 }
 
 export { d2rulesLanguage };
+
+export type SyntaxKeywordCategory =
+  | 'tier'
+  | 'quality'
+  | 'socket'
+  | 'color'
+  | 'visibility'
+  | 'notify'
+  | 'display'
+  | 'modifier'
+  | 'map'
+  | 'directive';
+
+export interface SyntaxKeywordEntry {
+  label: string;
+  category: SyntaxKeywordCategory;
+}
+
+/** Bare DSL keywords (outside quoted item-name patterns) offered by autocomplete. */
+export const SYNTAX_KEYWORDS: SyntaxKeywordEntry[] = [
+  ...QUALITY_KEYWORDS.map((label) => ({ label, category: 'quality' as const })),
+  ...TIER_KEYWORDS.filter((label) => !/^\d+$/.test(label)).map((label) => ({
+    label,
+    category: 'tier' as const,
+  })),
+  ...SOCKET_KEYWORDS.map((label) => ({ label, category: 'socket' as const })),
+  ...COLOR_KEYWORDS.map((label) => ({ label, category: 'color' as const })),
+  ...VISIBILITY_KEYWORDS.map((label) => ({ label, category: 'visibility' as const })),
+  ...NOTIFY_KEYWORDS.map((label) => ({ label, category: 'notify' as const })),
+  ...DISPLAY_KEYWORDS.map((label) => ({ label, category: 'display' as const })),
+  ...MODIFIER_KEYWORDS.map((label) => ({ label, category: 'modifier' as const })),
+  ...MAP_KEYWORDS.map((label) => ({ label, category: 'map' as const })),
+  { label: 'default', category: 'directive' as const },
+];
