@@ -130,6 +130,19 @@ git-cliff --config cliff.toml --unreleased --strip header
 Grouping is driven by `commit_parsers` in `cliff.toml` — edit there to adjust
 sections or skip more noise.
 
+### Pull Request Labels / Auto-Release
+
+`.github/workflows/auto-release.yml` cuts a release (version bump, tag, build)
+on **every** PR merged to `master`, unless the PR carries a label that changes
+that:
+
+- **`release:skip`** — merge does not bump the version or trigger a build.
+  Apply this automatically to any PR that only touches documentation (e.g.
+  `CLAUDE.md`, `AGENTS.md`, `README.md`, `docs/**`) with no source/build
+  changes — no need to wait for the user to ask.
+- **`release:minor`** / **`release:major`** — merge bumps minor/major instead
+  of the default patch. Apply when the change warrants it.
+
 ### Logging in Rust Backend
 
 **Do NOT use `println!` / `eprintln!` in production code.** Use the logger module:
