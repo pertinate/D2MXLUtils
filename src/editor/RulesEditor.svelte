@@ -14,7 +14,16 @@
     highlightSpecialChars,
   } from '@codemirror/view';
   import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
-  import { bracketMatching, codeFolding, foldGutter, foldKeymap } from '@codemirror/language';
+  import {
+    bracketMatching,
+    codeFolding,
+    foldable,
+    foldedRanges,
+    foldEffect,
+    unfoldEffect,
+    foldGutter,
+    foldKeymap,
+  } from '@codemirror/language';
   import { acceptCompletion, closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
   import { lintGutter, setDiagnostics } from '@codemirror/lint';
 
@@ -48,6 +57,13 @@
     onsave?: (value: string) => void;
     /** Called after validation completes with results */
     onvalidate?: (result: ValidationResult) => void;
+    /** Group-rule line numbers to fold once real content loads (the caller
+     *  typically mounts with `value` still empty and fills it in moments
+     *  later via an async profile load). */
+    initialFoldedLines?: number[];
+    /** Called whenever the folded set changes, so the caller can persist it
+     *  (e.g. per profile, across tab switches and app restarts). */
+    onFoldsChange?: (lines: number[]) => void;
   }
 
   let {
@@ -57,6 +73,8 @@
     onchange,
     onsave,
     onvalidate,
+    initialFoldedLines,
+    onFoldsChange,
   }: Props = $props();
 
   let container: HTMLDivElement;
@@ -67,6 +85,17 @@
 
   // Track if we're updating from external value change
   let isExternalUpdate = false;
+  // Suppress onFoldsChange while we're the ones applying initialFoldedLines,
+  // so restoring folds doesn't immediately report the same state back.
+  let isRestoringFolds = false;
+
+  function currentFoldedLines(state: EditorState): number[] {
+    const lines: number[] = [];
+    foldedRanges(state).between(0, state.doc.length, (from) => {
+      lines.push(state.doc.lineAt(from).number);
+    });
+    return lines;
+  }
 
   /**
    * Build editor extensions
@@ -135,6 +164,15 @@
           // They will reappear after the debounced linter runs
           update.view.dispatch(setDiagnostics(update.state, []));
         }
+
+        if (
+          !isRestoringFolds &&
+          update.transactions.some((tr) =>
+            tr.effects.some((e) => e.is(foldEffect) || e.is(unfoldEffect)),
+          )
+        ) {
+          onFoldsChange?.(currentFoldedLines(update.state));
+        }
       }),
     ];
 
@@ -162,6 +200,32 @@
     return extensions;
   }
 
+  // Callers (LootFilterTab) mount this with `value` still empty and fill it
+  // in moments later via an async profile load, which lands as an external
+  // value-sync transaction below. Applying initialFoldedLines only at mount
+  // would fold an empty document and then have that full-document
+  // replacement wipe the result. `foldsRestored` lets both call sites
+  // attempt the restore and it takes effect whichever one first sees real
+  // content.
+  let foldsRestored = false;
+
+  function restoreFolds() {
+    if (!view || foldsRestored || !initialFoldedLines?.length) return;
+    const effects = [];
+    for (const lineNo of initialFoldedLines) {
+      if (lineNo < 1 || lineNo > view.state.doc.lines) continue;
+      const line = view.state.doc.line(lineNo);
+      const range = foldable(view.state, line.from, line.to);
+      if (range) effects.push(foldEffect.of(range));
+    }
+    if (effects.length) {
+      isRestoringFolds = true;
+      view.dispatch({ effects });
+      isRestoringFolds = false;
+      foldsRestored = true;
+    }
+  }
+
   onMount(() => {
     view = new EditorView({
       state: EditorState.create({
@@ -182,6 +246,8 @@
       attributes: true,
       attributeFilter: ['data-theme'],
     });
+
+    restoreFolds();
   });
 
   onDestroy(() => {
@@ -204,6 +270,7 @@
         },
       });
       isExternalUpdate = false;
+      restoreFolds();
     }
   });
 

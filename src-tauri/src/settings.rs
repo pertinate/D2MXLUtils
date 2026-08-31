@@ -191,6 +191,11 @@ pub struct AppSettings {
     /// widget id (see `src/lib/overlay-widgets.ts`). Percent of overlay size.
     #[serde(default)]
     pub widget_positions: HashMap<String, WidgetPosition>,
+
+    /// Collapsed group-rule line numbers in the Loot Filter editor, keyed by
+    /// profile name, so folds survive switching tabs and restarting the app.
+    #[serde(default)]
+    pub folded_lines: HashMap<String, Vec<u32>>,
 }
 
 /// Window state for persistence
@@ -312,6 +317,7 @@ impl Default for AppSettings {
             goblin_alert_slot: None,
             dps_meter: DpsMeterSettings::default(),
             widget_positions: HashMap::new(),
+            folded_lines: HashMap::new(),
         }
     }
 }
