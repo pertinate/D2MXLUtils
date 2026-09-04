@@ -1434,6 +1434,17 @@ impl DropScanner {
         self.set_cache = Some(cache.set_cache);
     }
 
+    /// Drop the live matching caches so the next `tick_items` call rebuilds
+    /// them from current game memory (see `if self.class_cache.is_none()`).
+    /// Used by the manual "refresh game data" command to recover from a
+    /// stale on-disk cache (e.g. after an MXL content patch) without
+    /// restarting the app.
+    pub fn clear_matching_cache(&mut self) {
+        self.class_cache = None;
+        self.unique_cache = None;
+        self.set_cache = None;
+    }
+
     /// Snapshot of the live matching caches for persistence, once all
     /// three have been populated (either seeded from disk or freshly
     /// built). `None` while any is still missing.

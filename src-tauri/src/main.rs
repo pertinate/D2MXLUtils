@@ -112,6 +112,10 @@ struct AppState {
     speedcalc_table: Arc<RwLock<Option<speedcalc_data::SpeedcalcTable>>>,
     weapon_base_catalog: Arc<RwLock<Option<weapon_families::WeaponBaseCatalog>>>,
     dps_reset_pending: Arc<AtomicBool>,
+    /// Lets `refresh_game_data_caches` signal a currently-attached scanner
+    /// to rebuild its class/unique/set caches without an app restart.
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
+    scanner_shared_state: Arc<RwLock<Option<Arc<crate::scanner_state::SharedScannerState>>>>,
 }
 
 const GAME_STATUS_UNKNOWN: u8 = 0;
@@ -673,6 +677,24 @@ fn start_scanner_internal(
                         }
                     }
 
+                    // Manual recovery from a stale on-disk/in-memory cache
+                    // (e.g. after an MXL content patch) — see
+                    // `refresh_game_data_caches` command. Drop every cache
+                    // this loop knows about so the blocks below rebuild
+                    // everything live, same as a fresh attach would.
+                    if shared_state.refresh_requested.swap(false, Ordering::Relaxed) {
+                        log_info("Cache refresh requested — rebuilding item/unique/set/weapon-base caches from live game memory");
+                        scanner.clear_matching_cache();
+                        dict_published = false;
+                        #[cfg(any(target_os = "windows", target_os = "linux"))]
+                        {
+                            weapon_bases_published = false;
+                            if let Ok(mut guard) = weapon_base_catalog.write() {
+                                *guard = None;
+                            }
+                        }
+                    }
+
                     if !dict_published {
                         if let Some(dict) = scanner.items_dictionary_snapshot() {
                             if let Ok(mut guard) = items_dictionary.write() {
@@ -1191,6 +1213,60 @@ fn get_weapon_base_catalog(
         .read()
         .ok()
         .and_then(|guard| guard.clone())
+}
+
+/// Manual recovery from a stale `items.txt`/`UniqueItems.txt`/`SetItems.txt`
+/// snapshot (e.g. after an MXL content patch changed item data without a
+/// D2MXLUtils version bump — the on-disk caches are schema-versioned
+/// against *our* version, not the game's, so they don't self-invalidate).
+/// Clears the on-disk caches and, if a scanner is currently attached,
+/// signals it to rebuild live — no app restart required either way: an
+/// attached scanner rebuilds on its next tick, and a detached one rebuilds
+/// on its next attach.
+#[tauri::command]
+fn refresh_game_data_caches(app: AppHandle, state: tauri::State<AppState>) -> Result<(), String> {
+    if let Ok(dir) = app.path().app_data_dir() {
+        for file in [
+            "matching-cache.json",
+            "items-cache.json",
+            "weapon-bases.json",
+        ] {
+            let path = dir.join(file);
+            if path.exists() {
+                if let Err(e) = std::fs::remove_file(&path) {
+                    log_error(&format!(
+                        "refresh_game_data_caches: failed to remove {}: {}",
+                        file, e
+                    ));
+                }
+            }
+        }
+    }
+
+    if let Ok(mut guard) = state.items_dictionary.write() {
+        *guard = None;
+    }
+
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
+    {
+        if let Ok(mut guard) = state.weapon_base_catalog.write() {
+            *guard = None;
+        }
+        if let Ok(guard) = state.scanner_shared_state.read() {
+            if let Some(shared) = guard.as_ref() {
+                shared.refresh_requested.store(true, Ordering::Relaxed);
+                log_info(
+                    "refresh_game_data_caches: signaled live scanner to rebuild from current game memory",
+                );
+                return Ok(());
+            }
+        }
+    }
+
+    log_info(
+        "refresh_game_data_caches: no live attach — cleared on-disk/in-memory caches, next attach will rebuild",
+    );
+    Ok(())
 }
 
 // ===== DSL Parser Commands =====
@@ -2369,6 +2445,8 @@ fn main() {
                 speedcalc_table: Arc::new(RwLock::new(None)),
                 weapon_base_catalog: Arc::new(RwLock::new(cached_weapon_bases)),
                 dps_reset_pending: Arc::new(AtomicBool::new(false)),
+                #[cfg(any(target_os = "windows", target_os = "linux"))]
+                scanner_shared_state: scanner_shared_state.clone(),
             };
             let is_scanning = state.is_scanning.clone();
             let should_auto_scan = state.should_auto_scan.clone();
@@ -2574,6 +2652,7 @@ fn main() {
             unique_stats_db_sync::check_unique_stats_db_update,
             unique_stats_db_sync::download_unique_stats_db,
             get_weapon_base_catalog,
+            refresh_game_data_caches,
             sync_overlay_with_game,
             set_overlay_interactive,
             set_overlay_edit_mode,

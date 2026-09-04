@@ -65,6 +65,12 @@ pub struct SharedScannerState {
     /// of tick.
     pub clear_markers: AtomicBool,
     pub stop: AtomicBool,
+    /// Set by the `refresh_game_data_caches` command; the items thread
+    /// swap-clears it at top of tick and rebuilds class/unique/set caches
+    /// plus the weapon-base catalog from current game memory. Lets a
+    /// stale-cache recovery (e.g. after an MXL content patch) happen
+    /// without an app restart.
+    pub refresh_requested: AtomicBool,
     #[cfg(any(target_os = "windows", target_os = "linux"))]
     pub dps_hook: Arc<DpsHook>,
     #[cfg(any(target_os = "windows", target_os = "linux"))]
@@ -97,6 +103,7 @@ impl SharedScannerState {
             recent_bfs_items: RwLock::new(HashMap::new()),
             clear_markers: AtomicBool::new(false),
             stop: AtomicBool::new(false),
+            refresh_requested: AtomicBool::new(false),
             #[cfg(any(target_os = "windows", target_os = "linux"))]
             dps_hook: Arc::new(DpsHook::new()),
             #[cfg(any(target_os = "windows", target_os = "linux"))]
