@@ -182,11 +182,13 @@
           { label: 'Gold (carried)', render: tpl('{14}') },
           { label: 'Gold (stash)', render: tpl('{15}') },
           { label: 'Signets of Learning', render: tpl('{185} / 400') },
-          { label: 'Charms', render: tpl('{356} / 97') },
+          // Charms and Max Skill Level are disabled for now, pending
+          // further verification of the locally-computed Charms count
+          // (stat 356 — the engine's own GetUnitStat was found to badly
+          // under-report) and the Max Skill Level row (stat 479).
           { label: 'Magic Find', render: tpl('{80}%') },
           { label: 'Gold Find', render: tpl('{79}%') },
           { label: 'Experience Gain', render: tpl('+{85}%') },
-          { label: 'Max Skill Level', render: tpl('+{479}') },
         ],
       },
       {

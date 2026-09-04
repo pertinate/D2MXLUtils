@@ -14,10 +14,11 @@
 //! (mirroring D2Stats's `{NNN}` template strings) — this module only returns
 //! flat `stat id -> value` maps plus the ids needed to compute derived rows.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
+use crate::breakpoints::resolve_item_type_chain;
 use crate::injection::D2Injector;
-use crate::offsets::{stat_list, unit};
+use crate::offsets::{d2common, inventory, item_data, items_txt, stat_list, unit};
 use crate::process::D2Context;
 
 /// Every stat id shown anywhere in the Stats tab (character data, attributes,
@@ -76,6 +77,9 @@ const STAT_SF_ENERGY_BONUS: u32 = 907;
 /// next level (or `-1` when the level is beyond the known table).
 const STAT_EXP_LEVEL_START: u32 = 905;
 const STAT_EXP_LEVEL_NEXT: u32 = 906;
+/// "Charms" — see `count_charm_points` for why this is computed locally
+/// instead of trusted from the engine's own `GetUnitStat`.
+const STAT_CHARMS: u32 = 356;
 
 #[derive(Clone)]
 pub struct CharacterStats {
@@ -133,6 +137,23 @@ pub fn read_unit_character_stats(
         stats.insert(id, value);
     }
 
+    // Override the engine's own GetUnitStat(356) "Charms" value with a count
+    // we compute ourselves by walking the unit's actual inventory — verified
+    // via raw memory inspection to badly under-report (a character with 48
+    // confirmed real charm-type items showed 29 via GetUnitStat, when the
+    // documented (Charms+Relics)*2 formula implies ~90+). Root cause
+    // unconfirmed (stale engine-side cache? outdated formula docs?), but the
+    // live inventory count is independently verifiable and trustworthy.
+    // Doesn't yet model the documented per-item exceptions (Ennead=1pt,
+    // Sunstone of the Twin Seas=1-4pt by scrolls used, Riftwalker=2-6pt by
+    // upgrades, Sleep=0pt unless fully Awakened, Tome of Possession=+2pt
+    // despite not being a charm) — every matched item counts flat 2pt.
+    if let Some(points) = count_charm_points(ctx, p_unit) {
+        stats.insert(STAT_CHARMS, points as i32);
+    } else if let Some(prev_points) = previous.and_then(|p| p.stats.get(&STAT_CHARMS)) {
+        stats.insert(STAT_CHARMS, *prev_points);
+    }
+
     let energy_full = *stats.get(&1).unwrap_or(&0) as f64;
     let flat_sf = *stats.get(&485).unwrap_or(&0) as f64;
     let pct_sf = *stats.get(&488).unwrap_or(&0) as f64;
@@ -166,6 +187,93 @@ pub fn read_unit_character_stats(
         stats,
         base_stats,
     })
+}
+
+/// Counts the unit's currently-carried charm-type items (2pt each, no
+/// per-item exceptions modeled yet — see `STAT_CHARMS`) by walking its
+/// actual inventory, instead of trusting the engine's own internal
+/// `GetUnitStat(356)` value.
+///
+/// Each item's true `items.txt` row is `unit::CLASS` (read directly off the
+/// item's own `UnitAny`) — *not* `item_data::FILE_INDEX`, which for
+/// specially-named items (charms, quest items, uniques) turned out to hold
+/// an unrelated base-appearance/graphic index instead of the real type.
+/// That distinction was confirmed by cross-checking against the game's own
+/// `D2Injector::get_item_name` resolution (the same call the shipped item
+/// search/hover feature uses) for a known real charm — `unit::CLASS`
+/// matched its true row; `item_data::FILE_INDEX` pointed at an unrelated
+/// weapon base.
+///
+/// Returns `None` when the unit has no inventory (unit pointer stale, or a
+/// merc that hasn't fully attached this tick) so the caller can fall back
+/// to the last successfully-computed count instead of flashing to 0.
+fn count_charm_points(ctx: &D2Context, p_unit: u32) -> Option<u32> {
+    let inv_ptr = match ctx
+        .process
+        .read_memory::<u32>(p_unit as usize + unit::INVENTORY)
+    {
+        Ok(p) if p != 0 => p as usize,
+        _ => return None,
+    };
+    let items_base = match ctx
+        .process
+        .read_memory::<u32>(ctx.d2_common + d2common::ITEMS_TXT)
+    {
+        Ok(p) if p != 0 => p as usize,
+        _ => return None,
+    };
+    let items_count = ctx
+        .process
+        .read_memory::<u32>(ctx.d2_common + d2common::ITEMS_TXT_COUNT)
+        .unwrap_or(0);
+
+    let mut p_item = ctx
+        .process
+        .read_memory::<u32>(inv_ptr + inventory::FIRST_ITEM)
+        .unwrap_or(0);
+
+    let mut visited = HashSet::new();
+    let mut points = 0u32;
+    // Same generous cap as the equivalent debug walk — real inventories
+    // (inventory + cube + stash combined, per `item_data::GAME_LOCATION`)
+    // stay well under this.
+    for _ in 0..512 {
+        if p_item == 0 || !visited.insert(p_item) {
+            break;
+        }
+        let p_unit_data = match ctx
+            .process
+            .read_memory::<u32>(p_item as usize + unit::UNIT_DATA)
+        {
+            Ok(p) if p != 0 => p as usize,
+            _ => break,
+        };
+
+        let file_index = ctx
+            .process
+            .read_memory::<u32>(p_item as usize + unit::CLASS)
+            .unwrap_or(0);
+        if file_index > 0 && file_index < items_count {
+            let record = items_base + file_index as usize * items_txt::RECORD_SIZE;
+            let type0 = ctx
+                .process
+                .read_memory::<u16>(record + items_txt::TYPE_0)
+                .unwrap_or(0);
+            if resolve_item_type_chain(ctx, type0)
+                .iter()
+                .any(|code| code == "char")
+            {
+                points += 2;
+            }
+        }
+
+        p_item = ctx
+            .process
+            .read_memory::<u32>(p_unit_data + item_data::NEXT_ITEM)
+            .unwrap_or(0);
+    }
+
+    Some(points)
 }
 
 /// Reads stat values directly from the unit's own (unmerged) StatList —
