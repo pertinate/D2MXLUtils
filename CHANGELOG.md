@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.26.21 — 2026-09-04
+
+### Features
+
+- Feat(stats): cap displayed elemental/poison max resist at 90% (0d32d3e)
+
+### Other
+
+- 1.26.21 (a9e8017)
+
 ## v1.26.20 — 2026-09-04
 
 ### Bug Fixes
