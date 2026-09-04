@@ -1,5 +1,24 @@
 # Changelog
 
+## v1.26.19 — 2026-09-04
+
+### Bug Fixes
+
+- Fix(stats): compute Charms locally instead of trusting the engine's counter (0337095)
+- Fix(breakpoints): cache last-known data across tab switches (e703648)
+- Fix(stats): show cached data instantly and stop per-tick flicker on read failures (240909d)
+- Fix(stats): correct Life/Mana-per-point class factors, document Azurewrath (ba8cd3c)
+- Fix(stats): correct Spell Focus formula and layout tweaks (b199eb7)
+
+### Features
+
+- Feat(branding): mark this build as a community fork (81b2ce8)
+- Feat(stats): add full character Stats tab (2d188a5)
+
+### Other
+
+- 1.26.19 (2c5cdd8)
+
 ## v1.26.18 — 2026-08-31
 
 ### Features
