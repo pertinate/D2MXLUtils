@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.26.22 — 2026-09-04
+
+### Features
+
+- Feat: add manual refresh button for game data caches (26775c3)
+
+### Other
+
+- 1.26.22 (1e8c6a3)
+
 ## v1.26.21 — 2026-09-04
 
 ### Features
