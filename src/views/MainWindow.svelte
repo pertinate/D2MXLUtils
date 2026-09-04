@@ -12,7 +12,14 @@
     uniqueStatsDbStore,
     type WindowState,
   } from '../stores';
-  import { GeneralTab, LootFilterTab, NotificationsTab, BreakpointsTab, SoundsTab } from './index';
+  import {
+    GeneralTab,
+    LootFilterTab,
+    NotificationsTab,
+    BreakpointsTab,
+    StatsTab,
+    SoundsTab,
+  } from './index';
 
   // Scanner and game status from backend
   let scannerStatus = $state<'stopped' | 'starting' | 'running' | 'stopping' | 'error'>('stopped');
@@ -27,6 +34,7 @@
     { id: 'notifications', label: 'Notifications' },
     { id: 'sounds', label: 'Sounds' },
     { id: 'breakpoints', label: 'Breakpoints' },
+    { id: 'stats', label: 'Stats' },
   ];
 
   function getStatusColor(status: string): string {
@@ -175,7 +183,7 @@
   <!-- Header with status -->
   <header class="header">
     <div class="brand">
-      <h1 class="title">D2MXL<span class="accent">Utils</span></h1>
+      <h1 class="title">D2MXL<span class="accent">Utils</span> Fork</h1>
       <span class="version">v{__APP_VERSION__}</span>
     </div>
 
@@ -213,6 +221,8 @@
           <SoundsTab />
         {:else if tab === 'breakpoints'}
           <BreakpointsTab />
+        {:else if tab === 'stats'}
+          <StatsTab />
         {/if}
       {/snippet}
     </Tabs>
@@ -220,7 +230,7 @@
 
   <!-- Footer -->
   <footer class="footer">
-    <span class="footer-text">Made with ❤️ by synonymouse</span>
+    <span class="footer-text">Made with ❤️ by synonymouse · Fork maintained by Pertinate</span>
   </footer>
 </main>
 

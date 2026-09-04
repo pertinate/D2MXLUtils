@@ -2,6 +2,7 @@
 
 mod breakpoints;
 mod d2types;
+mod damage_stats;
 mod dps_hook;
 mod dps_meter;
 mod hook_bit_tracker;
@@ -26,6 +27,7 @@ mod scanner_state;
 mod settings;
 mod sounds;
 mod speedcalc_data;
+mod stats_panel;
 mod unique_stats_db;
 mod unique_stats_db_sync;
 mod updater;
@@ -106,6 +108,7 @@ struct AppState {
     /// Session loot history shared with scanner thread.
     loot_history: Arc<RwLock<LootHistory>>,
     breakpoints_polling: Arc<AtomicBool>,
+    stats_polling: Arc<AtomicBool>,
     speedcalc_table: Arc<RwLock<Option<speedcalc_data::SpeedcalcTable>>>,
     weapon_base_catalog: Arc<RwLock<Option<weapon_families::WeaponBaseCatalog>>>,
     dps_reset_pending: Arc<AtomicBool>,
@@ -184,6 +187,7 @@ fn start_scanner_internal(
     items_dictionary: Arc<RwLock<Option<ItemsDictionary>>>,
     loot_history: Arc<RwLock<LootHistory>>,
     breakpoints_polling: Arc<AtomicBool>,
+    stats_polling: Arc<AtomicBool>,
     weapon_base_catalog: Arc<RwLock<Option<weapon_families::WeaponBaseCatalog>>>,
     dps_reset_pending: Arc<AtomicBool>,
     #[cfg(any(target_os = "windows", target_os = "linux"))] scanner_shared_state: Arc<
@@ -397,11 +401,27 @@ fn start_scanner_internal(
             let mut last_player_bp: Option<breakpoints::BreakpointData> = None;
             #[cfg(any(target_os = "windows", target_os = "linux"))]
             let mut last_merc_bp: Option<breakpoints::BreakpointData> = None;
+            // Same last-good-snapshot fallback for the Stats tab — a
+            // transient `GetUnitStat` failure partway through the ~100-id
+            // sweep used to flash individual rows (level, attributes, ...)
+            // to 0 before the next successful poll corrected them.
+            #[cfg(any(target_os = "windows", target_os = "linux"))]
+            let mut last_player_stats: Option<stats_panel::CharacterStats> = None;
+            #[cfg(any(target_os = "windows", target_os = "linux"))]
+            let mut last_merc_stats: Option<stats_panel::CharacterStats> = None;
+            #[cfg(any(target_os = "windows", target_os = "linux"))]
+            let mut last_player_damage: Option<damage_stats::DamageStats> = None;
+            #[cfg(any(target_os = "windows", target_os = "linux"))]
+            let mut last_merc_damage: Option<damage_stats::DamageStats> = None;
             let mut pending_set_always_show = false;
             let mut pending_set_no_pickup: Option<bool> = None;
             let mut last_emitted_always_show: Option<bool> = None;
             // Area-change check throttle (~150 ms at 30 ms tick).
             let mut dps_area_tick_counter: u32 = 0;
+            // Full character-stats sheet is ~90 GetUnitStat calls per unit —
+            // throttle to ~300 ms at 30 ms tick instead of every tick.
+            let mut stats_tick_counter: u32 = 0;
+            const STATS_CHECK_EVERY: u32 = 10;
 
             // Main scanning loop
             while is_scanning.load(Ordering::SeqCst) {
@@ -772,6 +792,84 @@ fn start_scanner_internal(
                     }
 
                     #[cfg(any(target_os = "windows", target_os = "linux"))]
+                    if stats_polling.load(Ordering::Relaxed) {
+                        stats_tick_counter = stats_tick_counter.wrapping_add(1);
+                        if stats_tick_counter % STATS_CHECK_EVERY == 0 {
+                            let injector = shared_state.injector.lock().unwrap();
+
+                            let player_damage = match damage_stats::read_unit_damage_stats(
+                                &shared_state.ctx,
+                                &injector,
+                                offsets::d2client::PLAYER_UNIT,
+                            ) {
+                                Ok(data) => {
+                                    last_player_damage = data.clone();
+                                    data
+                                }
+                                Err(()) => last_player_damage.clone(),
+                            };
+                            let merc_damage = match damage_stats::read_unit_damage_stats(
+                                &shared_state.ctx,
+                                &injector,
+                                offsets::d2client::MERCENARY_UNIT,
+                            ) {
+                                Ok(data) => {
+                                    last_merc_damage = data.clone();
+                                    data
+                                }
+                                Err(()) => last_merc_damage.clone(),
+                            };
+
+                            let player_stats = stats_panel::read_unit_character_stats(
+                                &shared_state.ctx,
+                                &injector,
+                                offsets::d2client::PLAYER_UNIT,
+                                last_player_stats.as_ref(),
+                            );
+                            last_player_stats = player_stats.clone();
+                            let merc_stats = stats_panel::read_unit_character_stats(
+                                &shared_state.ctx,
+                                &injector,
+                                offsets::d2client::MERCENARY_UNIT,
+                                last_merc_stats.as_ref(),
+                            );
+                            last_merc_stats = merc_stats.clone();
+                            drop(injector);
+
+                            #[derive(serde::Serialize)]
+                            struct UnitStatsPayload {
+                                class: u32,
+                                stats: std::collections::BTreeMap<u32, i32>,
+                                #[serde(rename = "baseStats")]
+                                base_stats: std::collections::BTreeMap<u32, i32>,
+                                damage: Option<damage_stats::DamageStats>,
+                            }
+                            #[derive(serde::Serialize)]
+                            struct StatsPayload {
+                                player: Option<UnitStatsPayload>,
+                                merc: Option<UnitStatsPayload>,
+                            }
+                            let payload = StatsPayload {
+                                player: player_stats.map(|s| UnitStatsPayload {
+                                    class: s.class,
+                                    stats: s.stats,
+                                    base_stats: s.base_stats,
+                                    damage: player_damage,
+                                }),
+                                merc: merc_stats.map(|s| UnitStatsPayload {
+                                    class: s.class,
+                                    stats: s.stats,
+                                    base_stats: s.base_stats,
+                                    damage: merc_damage,
+                                }),
+                            };
+                            if let Err(e) = app_handle.emit("stats-update", &payload) {
+                                log_error(&format!("Failed to emit stats-update: {}", e));
+                            }
+                        }
+                    }
+
+                    #[cfg(any(target_os = "windows", target_os = "linux"))]
                     {
                         const AREA_CHECK_EVERY: u32 = 5;
                         let events = shared_state.dps_hook.drain();
@@ -890,6 +988,7 @@ fn spawn_auto_scanner(
     items_dictionary: Arc<RwLock<Option<ItemsDictionary>>>,
     loot_history: Arc<RwLock<LootHistory>>,
     breakpoints_polling: Arc<AtomicBool>,
+    stats_polling: Arc<AtomicBool>,
     weapon_base_catalog: Arc<RwLock<Option<weapon_families::WeaponBaseCatalog>>>,
     dps_reset_pending: Arc<AtomicBool>,
     #[cfg(any(target_os = "windows", target_os = "linux"))] scanner_shared_state: Arc<
@@ -915,6 +1014,7 @@ fn spawn_auto_scanner(
                     items_dictionary.clone(),
                     loot_history.clone(),
                     breakpoints_polling.clone(),
+                    stats_polling.clone(),
                     weapon_base_catalog.clone(),
                     dps_reset_pending.clone(),
                     #[cfg(any(target_os = "windows", target_os = "linux"))]
@@ -1045,6 +1145,11 @@ fn set_auto_no_pickup(enabled: bool, state: tauri::State<AppState>) {
 #[tauri::command]
 fn set_breakpoints_polling(enabled: bool, state: tauri::State<AppState>) {
     state.breakpoints_polling.store(enabled, Ordering::SeqCst);
+}
+
+#[tauri::command]
+fn set_stats_polling(enabled: bool, state: tauri::State<AppState>) {
+    state.stats_polling.store(enabled, Ordering::SeqCst);
 }
 
 #[tauri::command]
@@ -2260,6 +2365,7 @@ fn main() {
                 items_dictionary: Arc::new(RwLock::new(cached_items)),
                 loot_history: Arc::new(RwLock::new(LootHistory::new())),
                 breakpoints_polling: Arc::new(AtomicBool::new(false)),
+                stats_polling: Arc::new(AtomicBool::new(false)),
                 speedcalc_table: Arc::new(RwLock::new(None)),
                 weapon_base_catalog: Arc::new(RwLock::new(cached_weapon_bases)),
                 dps_reset_pending: Arc::new(AtomicBool::new(false)),
@@ -2278,6 +2384,7 @@ fn main() {
             let items_dictionary = state.items_dictionary.clone();
             let loot_history = state.loot_history.clone();
             let breakpoints_polling = state.breakpoints_polling.clone();
+            let stats_polling = state.stats_polling.clone();
             let speedcalc_table_for_cache = state.speedcalc_table.clone();
             let weapon_base_catalog = state.weapon_base_catalog.clone();
             let dps_reset_pending = state.dps_reset_pending.clone();
@@ -2395,6 +2502,7 @@ fn main() {
                 items_dictionary.clone(),
                 loot_history.clone(),
                 breakpoints_polling.clone(),
+                stats_polling.clone(),
                 weapon_base_catalog.clone(),
                 dps_reset_pending.clone(),
                 #[cfg(any(target_os = "windows", target_os = "linux"))]
@@ -2460,6 +2568,7 @@ fn main() {
             set_auto_always_show_items,
             set_auto_no_pickup,
             set_breakpoints_polling,
+            set_stats_polling,
             get_speedcalc_data,
             refresh_speedcalc_data,
             unique_stats_db_sync::check_unique_stats_db_update,

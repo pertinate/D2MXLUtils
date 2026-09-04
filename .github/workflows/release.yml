@@ -228,6 +228,16 @@ jobs:
         # summarized error showed up, during local debugging.
         run: pnpm tauri build --target x86_64-unknown-linux-gnu --bundles appimage --verbose
 
+      - name: Rename AppImage to match Windows binary naming
+        # Tauri names the bundle after productName + version + arch (e.g.
+        # "D2MXLUtils_1.26.18_amd64.AppImage"); the Windows job instead
+        # uploads the raw binary as-built ("d2mxlutils.exe"). Rename here so
+        # both release assets share the same plain lowercase name.
+        run: |
+          bundle_dir=src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/appimage
+          appimage=$(find "$bundle_dir" -maxdepth 1 -name '*.AppImage' -print -quit)
+          mv "$appimage" "$bundle_dir/d2mxlutils.appimage"
+
       - name: Upload AppImage to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -235,6 +245,6 @@ jobs:
           # the release it just created rather than trying to make a new
           # one — see that step's comment for why the fallback exists.
           tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('manual-{0}', github.run_number) }}
-          files: src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/appimage/*.AppImage
+          files: src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/appimage/d2mxlutils.appimage
           draft: false
           prerelease: false
