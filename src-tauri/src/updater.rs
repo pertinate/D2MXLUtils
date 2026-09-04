@@ -168,11 +168,13 @@ fn check_inner() -> Result<UpdateCheckResult, String> {
                     }
                     #[cfg(target_os = "linux")]
                     {
-                        // Version is baked into the filename (e.g.
-                        // "D2MXLUtils_1.26.2_amd64.AppImage" — see
-                        // release.yml's `*.AppImage` upload glob), so match
-                        // by extension rather than an exact name.
-                        a.name.ends_with(".AppImage")
+                        // release.yml now uploads the plain lowercase
+                        // "d2mxlutils.appimage" (matching the Windows job's
+                        // "d2mxlutils.exe"), but older releases still carry
+                        // Tauri's default versioned name (e.g.
+                        // "D2MXLUtils_1.26.2_amd64.AppImage") — match by
+                        // extension, case-insensitively, to cover both.
+                        a.name.to_ascii_lowercase().ends_with(".appimage")
                     }
                     #[cfg(not(any(target_os = "windows", target_os = "linux")))]
                     {
