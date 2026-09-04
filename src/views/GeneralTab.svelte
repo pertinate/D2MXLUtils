@@ -202,6 +202,32 @@
     updaterStore.check(true);
   }
 
+  let refreshGameDataStatus = $state<'idle' | 'refreshing' | 'done' | 'error'>('idle');
+
+  async function handleRefreshGameData() {
+    refreshGameDataStatus = 'refreshing';
+    try {
+      await invoke('refresh_game_data_caches');
+      refreshGameDataStatus = 'done';
+    } catch (err) {
+      console.error('Failed to refresh game data caches:', err);
+      refreshGameDataStatus = 'error';
+    }
+  }
+
+  function refreshGameDataStatusText(): string {
+    switch (refreshGameDataStatus) {
+      case 'idle':
+        return '';
+      case 'refreshing':
+        return 'Refreshing…';
+      case 'done':
+        return 'Done — rebuilding from the game live now (or on next attach if D2 isn’t running).';
+      case 'error':
+        return 'Failed to refresh — check d2mxlutils.log.';
+    }
+  }
+
   async function handleOpenAppFolder() {
     try {
       await invoke('open_app_folder');
@@ -540,6 +566,33 @@
     {#if uniqueDbStatusText()}
       <div class="update-status" class:is-error={uniqueDbState.kind === 'error'}>
         {uniqueDbStatusText()}
+      </div>
+    {/if}
+
+    <div class="setting-row">
+      <div class="setting-info">
+        <span class="setting-label">Refresh game data cache</span>
+        <span class="setting-hint">
+          Rebuilds item/unique/set names and weapon bases from the game. Use this after an MXL patch
+          if drops look mislabeled. No restart needed — takes effect immediately if D2 is attached,
+          or on next attach otherwise.
+        </span>
+      </div>
+      <div class="update-control">
+        <Button
+          variant="secondary"
+          size="sm"
+          disabled={refreshGameDataStatus === 'refreshing'}
+          onclick={handleRefreshGameData}
+        >
+          Refresh
+        </Button>
+      </div>
+    </div>
+
+    {#if refreshGameDataStatusText()}
+      <div class="update-status" class:is-error={refreshGameDataStatus === 'error'}>
+        {refreshGameDataStatusText()}
       </div>
     {/if}
   </div>
