@@ -79,43 +79,49 @@ const STAT_POISON_MIN: u32 = 57;
 const STAT_POISON_MAX: u32 = 58;
 
 /// Mirrors `D2Stats.au3::UpdateStatValues` + `CalculateWeaponDamage` for a
-/// single unit (player or mercenary). Returns `None` when the unit pointer
-/// is null or has no weapon in the right-hand slot (bare-handed) — same
-/// early-out as `CalculateWeaponDamage`'s `if (not $pWeapon) then return`.
+/// single unit (player or mercenary).
+///
+/// `Ok(None)` means the unit pointer is null or has no weapon in the
+/// right-hand slot (bare-handed) — same early-out as
+/// `CalculateWeaponDamage`'s `if (not $pWeapon) then return`. `Err(())`
+/// means a `GetUnitStat` call failed partway through — see
+/// `stats_panel::read_unit_character_stats` for why callers should keep the
+/// last good snapshot instead of treating this like a real zero.
 pub fn read_unit_damage_stats(
     ctx: &D2Context,
     injector: &D2Injector,
     unit_ptr_offset: usize,
-) -> Option<DamageStats> {
+) -> Result<Option<DamageStats>, ()> {
     let unit_ptr_addr = ctx.d2_client + unit_ptr_offset;
     let p_unit = match ctx.process.read_memory::<u32>(unit_ptr_addr) {
         Ok(p) if p != 0 => p,
-        _ => return None,
+        _ => return Ok(None),
     };
 
     let (_, _, _, file_index) = read_equipped_weapon(ctx, p_unit);
     if file_index == 0 {
-        return None;
+        return Ok(None);
     }
 
     let (str_bonus, dex_bonus, is_1h, is_2h) = read_weapon_damage_fields(ctx, file_index as usize);
 
-    let stat = |id: u32| -> i32 {
+    let stat = |id: u32| -> Result<i32, ()> {
         injector
             .get_unit_stat(&ctx.process, p_unit, id)
-            .unwrap_or(0) as i32
+            .map(|v| v as i32)
+            .map_err(|_| ())
     };
 
-    let str_total = stat(STAT_STRENGTH);
-    let dex_total = stat(STAT_DEXTERITY);
+    let str_total = stat(STAT_STRENGTH)?;
+    let dex_total = stat(STAT_DEXTERITY)?;
 
-    let min_dmg_1h = if is_1h { stat(STAT_MIN_DAMAGE_1H) } else { 0 };
-    let mut max_dmg_1h = if is_1h { stat(STAT_MAX_DAMAGE_1H) } else { 0 };
+    let min_dmg_1h = if is_1h { stat(STAT_MIN_DAMAGE_1H)? } else { 0 };
+    let mut max_dmg_1h = if is_1h { stat(STAT_MAX_DAMAGE_1H)? } else { 0 };
     let (min_dmg_2h, mut max_dmg_2h) = if is_2h {
-        (stat(STAT_MIN_DAMAGE_2H), stat(STAT_MAX_DAMAGE_2H))
+        (stat(STAT_MIN_DAMAGE_2H)?, stat(STAT_MAX_DAMAGE_2H)?)
     } else if is_1h {
         // Thrown weapon: 1H but not 2H uses the throw-damage stat pair.
-        (stat(STAT_MIN_DAMAGE_THROW), stat(STAT_MAX_DAMAGE_THROW))
+        (stat(STAT_MIN_DAMAGE_THROW)?, stat(STAT_MAX_DAMAGE_THROW)?)
     } else {
         (0, 0)
     };
@@ -127,7 +133,7 @@ pub fn read_unit_damage_stats(
         max_dmg_2h = min_dmg_2h + 1;
     }
 
-    let ewd = stat(STAT_DAMAGE_PERCENT) + stat(STAT_ITEMTYPE_EWD);
+    let ewd = stat(STAT_DAMAGE_PERCENT)? + stat(STAT_ITEMTYPE_EWD)?;
     let str_pct = (str_total as i64 * str_bonus as i64) as f64 / 100.0;
     let dex_pct = (dex_total as i64 * dex_bonus as i64) as f64 / 100.0;
     let stat_bonus = (str_pct + dex_pct).floor() as i64 - 1;
@@ -135,24 +141,24 @@ pub fn read_unit_damage_stats(
 
     let scale = |v: i32| -> i32 { ((v as f64) * total_mult).floor() as i32 };
 
-    Some(DamageStats {
+    Ok(Some(DamageStats {
         phys_min_1h: scale(min_dmg_1h),
         phys_max_1h: scale(max_dmg_1h),
         phys_min_2h: scale(min_dmg_2h),
         phys_max_2h: scale(max_dmg_2h),
-        fire_min: stat(STAT_FIRE_MIN),
-        fire_max: stat(STAT_FIRE_MAX),
-        cold_min: stat(STAT_COLD_MIN),
-        cold_max: stat(STAT_COLD_MAX),
-        lightning_min: stat(STAT_LIGHTNING_MIN),
-        lightning_max: stat(STAT_LIGHTNING_MAX),
-        magic_min: stat(STAT_MAGIC_MIN),
-        magic_max: stat(STAT_MAGIC_MAX),
-        poison_min_per_sec: scale_poison(stat(STAT_POISON_MIN)),
-        poison_max_per_sec: scale_poison(stat(STAT_POISON_MAX)),
+        fire_min: stat(STAT_FIRE_MIN)?,
+        fire_max: stat(STAT_FIRE_MAX)?,
+        cold_min: stat(STAT_COLD_MIN)?,
+        cold_max: stat(STAT_COLD_MAX)?,
+        lightning_min: stat(STAT_LIGHTNING_MIN)?,
+        lightning_max: stat(STAT_LIGHTNING_MAX)?,
+        magic_min: stat(STAT_MAGIC_MIN)?,
+        magic_max: stat(STAT_MAGIC_MAX)?,
+        poison_min_per_sec: scale_poison(stat(STAT_POISON_MIN)?),
+        poison_max_per_sec: scale_poison(stat(STAT_POISON_MAX)?),
         str_damage_bonus_pct: str_pct.floor() as i32,
         dex_damage_bonus_pct: dex_pct.floor() as i32,
-    })
+    }))
 }
 
 /// D2Stats.au3:642-643 — `$g_aiStatsCache[1][57] *= (25/256)`.

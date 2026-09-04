@@ -1,45 +1,22 @@
 <script lang="ts">
-  import { invoke } from '@tauri-apps/api/core';
-  import { listen, type UnlistenFn } from '@tauri-apps/api/event';
   import { onMount } from 'svelte';
   import { CLASSES } from '../lib/breakpoint-constants';
+  import { statsStore, type UnitStats } from '../stores';
 
-  interface DamageStats {
-    physMin1h: number;
-    physMax1h: number;
-    physMin2h: number;
-    physMax2h: number;
-    fireMin: number;
-    fireMax: number;
-    coldMin: number;
-    coldMax: number;
-    lightningMin: number;
-    lightningMax: number;
-    magicMin: number;
-    magicMax: number;
-    poisonMinPerSec: number;
-    poisonMaxPerSec: number;
-    strDamageBonusPct: number;
-    dexDamageBonusPct: number;
-  }
-
-  interface UnitStats {
-    class: number;
-    stats: Record<string, number>;
-    baseStats: Record<string, number>;
-    damage: DamageStats | null;
-  }
-
-  interface StatsPayload {
-    player: UnitStats | null;
-    merc: UnitStats | null;
-  }
-
-  let livePlayer = $state<UnitStats | null>(null);
-  let liveMerc = $state<UnitStats | null>(null);
   let activeEntity = $state<'player' | 'merc'>('player');
 
-  let active = $derived(activeEntity === 'player' ? livePlayer : liveMerc);
+  let active = $derived(activeEntity === 'player' ? statsStore.player : statsStore.merc);
+  // The first `stats-update` payload can lag behind the tab opening (or the
+  // player loading into game) by a poll cycle or more — each tick reads ~100
+  // stat ids one-by-one via the injector, twice (player + merc). Rather than
+  // show a blank pane until that first payload lands, render the section/row
+  // *shells* as soon as we know a game is running and fill them with a
+  // skeleton placeholder instead of leaving the whole tab empty. `statsStore`
+  // lives outside this component, so switching tabs away and back re-shows
+  // its cached last-known data instantly instead of hitting this state again.
+  let awaitingFirstData = $derived(
+    statsStore.gameStatus === 'ingame' && !active && !statsStore.receivedFirstPayload,
+  );
 
   // Life-per-Vitality / Mana-per-Energy growth factors, indexed by class id
   // (0=Amazon..6=Assassin, matches `CLASSES` in breakpoint-constants.ts).
@@ -496,19 +473,28 @@
       .filter((section) => section.rows.length > 0);
   });
 
+  // Zeroed stand-in unit, used only to pull the static section/row shape
+  // (titles, labels, tooltips) out of `buildSections` while we wait for real
+  // data — its computed values are never shown. Rows that are conditionally
+  // `visible` based on real data (e.g. the Flags section) can't be resolved
+  // from a stub and are left out of the skeleton; they appear once real data
+  // arrives, same as any other stat that changes over time.
+  const EMPTY_UNIT: UnitStats = { class: 0, stats: {}, baseStats: {}, damage: null };
+  let skeletonSections = $derived.by(() =>
+    buildSections(EMPTY_UNIT)
+      .filter((section) => section.rows.some((row) => !row.visible))
+      .map((section) => ({
+        title: section.title,
+        rows: section.rows.filter((row) => !row.visible),
+      })),
+  );
+
   onMount(() => {
-    const unlisteners: UnlistenFn[] = [];
-
-    invoke('set_stats_polling', { enabled: true });
-
-    listen<StatsPayload>('stats-update', (event) => {
-      livePlayer = event.payload.player;
-      liveMerc = event.payload.merc;
-    }).then((u) => unlisteners.push(u));
+    statsStore.initListeners();
+    statsStore.startPolling();
 
     return () => {
-      invoke('set_stats_polling', { enabled: false });
-      unlisteners.forEach((u) => u());
+      statsStore.stopPolling();
     };
   });
 </script>
@@ -535,12 +521,28 @@
     </button>
   </div>
 
-  {#if !active}
+  {#if !active && !awaitingFirstData}
     <p class="no-data">
       No character data — make sure Diablo II is running and the {activeEntity === 'merc'
         ? 'mercenary is hired'
         : 'character is loaded'}.
     </p>
+  {:else if awaitingFirstData}
+    <div class="stats-grid">
+      {#each skeletonSections as section (section.title)}
+        <div class="stats-card">
+          <h3 class="stats-card-title">{section.title}</h3>
+          <div class="stats-list">
+            {#each section.rows as row (row.label)}
+              <div class="stat-row" title={row.tooltip}>
+                <span class="label-cell">{row.label}</span>
+                <span class="value-cell skeleton" style:color={row.colorVar}>&nbsp;</span>
+              </div>
+            {/each}
+          </div>
+        </div>
+      {/each}
+    </div>
   {:else}
     <div class="stats-grid">
       {#each visibleSections as section (section.title)}
@@ -653,5 +655,29 @@
     font-size: var(--text-sm);
     text-align: center;
     padding: var(--space-4);
+  }
+
+  .value-cell.skeleton {
+    display: inline-block;
+    width: 64px;
+    height: 0.9em;
+    border-radius: var(--radius-sm);
+    background: linear-gradient(
+      90deg,
+      var(--bg-tertiary) 25%,
+      var(--border-primary) 50%,
+      var(--bg-tertiary) 75%
+    );
+    background-size: 200% 100%;
+    animation: skeleton-shimmer 1.4s linear infinite;
+  }
+
+  @keyframes skeleton-shimmer {
+    from {
+      background-position: 200% 0;
+    }
+    to {
+      background-position: -200% 0;
+    }
   }
 </style>

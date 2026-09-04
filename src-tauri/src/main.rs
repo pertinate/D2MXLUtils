@@ -401,6 +401,18 @@ fn start_scanner_internal(
             let mut last_player_bp: Option<breakpoints::BreakpointData> = None;
             #[cfg(any(target_os = "windows", target_os = "linux"))]
             let mut last_merc_bp: Option<breakpoints::BreakpointData> = None;
+            // Same last-good-snapshot fallback for the Stats tab — a
+            // transient `GetUnitStat` failure partway through the ~100-id
+            // sweep used to flash individual rows (level, attributes, ...)
+            // to 0 before the next successful poll corrected them.
+            #[cfg(any(target_os = "windows", target_os = "linux"))]
+            let mut last_player_stats: Option<stats_panel::CharacterStats> = None;
+            #[cfg(any(target_os = "windows", target_os = "linux"))]
+            let mut last_merc_stats: Option<stats_panel::CharacterStats> = None;
+            #[cfg(any(target_os = "windows", target_os = "linux"))]
+            let mut last_player_damage: Option<damage_stats::DamageStats> = None;
+            #[cfg(any(target_os = "windows", target_os = "linux"))]
+            let mut last_merc_damage: Option<damage_stats::DamageStats> = None;
             let mut pending_set_always_show = false;
             let mut pending_set_no_pickup: Option<bool> = None;
             let mut last_emitted_always_show: Option<bool> = None;
@@ -785,27 +797,43 @@ fn start_scanner_internal(
                         if stats_tick_counter % STATS_CHECK_EVERY == 0 {
                             let injector = shared_state.injector.lock().unwrap();
 
-                            let player_damage = damage_stats::read_unit_damage_stats(
+                            let player_damage = match damage_stats::read_unit_damage_stats(
                                 &shared_state.ctx,
                                 &injector,
                                 offsets::d2client::PLAYER_UNIT,
-                            );
-                            let merc_damage = damage_stats::read_unit_damage_stats(
+                            ) {
+                                Ok(data) => {
+                                    last_player_damage = data.clone();
+                                    data
+                                }
+                                Err(()) => last_player_damage.clone(),
+                            };
+                            let merc_damage = match damage_stats::read_unit_damage_stats(
                                 &shared_state.ctx,
                                 &injector,
                                 offsets::d2client::MERCENARY_UNIT,
-                            );
+                            ) {
+                                Ok(data) => {
+                                    last_merc_damage = data.clone();
+                                    data
+                                }
+                                Err(()) => last_merc_damage.clone(),
+                            };
 
                             let player_stats = stats_panel::read_unit_character_stats(
                                 &shared_state.ctx,
                                 &injector,
                                 offsets::d2client::PLAYER_UNIT,
+                                last_player_stats.as_ref(),
                             );
+                            last_player_stats = player_stats.clone();
                             let merc_stats = stats_panel::read_unit_character_stats(
                                 &shared_state.ctx,
                                 &injector,
                                 offsets::d2client::MERCENARY_UNIT,
+                                last_merc_stats.as_ref(),
                             );
+                            last_merc_stats = merc_stats.clone();
                             drop(injector);
 
                             #[derive(serde::Serialize)]

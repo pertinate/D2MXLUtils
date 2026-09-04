@@ -77,6 +77,7 @@ const STAT_SF_ENERGY_BONUS: u32 = 907;
 const STAT_EXP_LEVEL_START: u32 = 905;
 const STAT_EXP_LEVEL_NEXT: u32 = 906;
 
+#[derive(Clone)]
 pub struct CharacterStats {
     /// Unit class id (0=Amazon..6=Assassin) — lets the frontend look up
     /// class-specific constants (e.g. life-per-vitality).
@@ -89,10 +90,25 @@ pub struct CharacterStats {
     pub base_stats: BTreeMap<u32, i32>,
 }
 
+/// Reads the full character-stats sheet for one unit.
+///
+/// Returns `None` only when the unit pointer is null (no player/merc — a
+/// real, stable condition). A `GetUnitStat` call failing partway through
+/// the ~100-id sweep (the injector's remote-thread call can miss
+/// transiently under load) does *not* abort the whole read or zero that
+/// stat — `previous` (the last successfully-merged snapshot, tracked by the
+/// caller in `main.rs`) is consulted per-id instead, so one flaky call
+/// doesn't blank out or stall the entire sheet. Aborting the whole sweep on
+/// any single failure was tried first and made things worse: with ~100
+/// sequential remote-thread calls, the odds of *at least one* failing in a
+/// given sweep are much higher than any individual call failing, so under a
+/// flaky injector (e.g. under Wine) a full clean sweep could become rare
+/// enough that the tab never recovers from "no data".
 pub fn read_unit_character_stats(
     ctx: &D2Context,
     injector: &D2Injector,
     unit_ptr_offset: usize,
+    previous: Option<&CharacterStats>,
 ) -> Option<CharacterStats> {
     let unit_ptr_addr = ctx.d2_client + unit_ptr_offset;
     let p_unit = match ctx.process.read_memory::<u32>(unit_ptr_addr) {
@@ -107,10 +123,14 @@ pub fn read_unit_character_stats(
 
     let mut stats = BTreeMap::new();
     for &id in STAT_IDS {
-        let raw = injector
-            .get_unit_stat(&ctx.process, p_unit, id)
-            .unwrap_or(0) as i32;
-        stats.insert(id, scale_life_mana(id, raw));
+        let value = match injector.get_unit_stat(&ctx.process, p_unit, id) {
+            Ok(raw) => scale_life_mana(id, raw as i32),
+            Err(_) => previous
+                .and_then(|p| p.stats.get(&id))
+                .copied()
+                .unwrap_or(0),
+        };
+        stats.insert(id, value);
     }
 
     let energy_full = *stats.get(&1).unwrap_or(&0) as f64;
