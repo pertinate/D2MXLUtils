@@ -37,6 +37,11 @@
   // other means, it just isn't shown with a computed max here.
   const BASE_RESIST_CAP = 75;
   const PHYSICAL_RESIST_CAP = 50;
+  // Elemental/poison resists have a hard absolute ceiling of 90% regardless
+  // of how much +max-resist bonus is stacked — the displayed max is capped
+  // here, with any excess bonus surfaced as "(+X%)" so it's visible without
+  // implying it actually raises the real cap.
+  const ABSOLUTE_RESIST_CAP = 90;
 
   function num(stats: Record<string, number>, id: number): number {
     return stats[String(id)] ?? 0;
@@ -114,11 +119,23 @@
       : `${capped.toFixed(1)}%`;
   }
 
-  function resistLabel(u: UnitStats, currentId: number, maxBonusId: number | null): string {
+  function resistLabel(
+    u: UnitStats,
+    currentId: number,
+    maxBonusId: number | null,
+    capAt90 = false,
+  ): string {
     const current = num(u.stats, currentId);
-    const max =
+    const rawMax =
       maxBonusId === null ? PHYSICAL_RESIST_CAP : BASE_RESIST_CAP + num(u.stats, maxBonusId);
-    return `${current}% / max ${max}%`;
+    if (!capAt90) {
+      return `${current}% / max ${rawMax}%`;
+    }
+    const cappedMax = Math.min(rawMax, ABSOLUTE_RESIST_CAP);
+    const overcap = rawMax - ABSOLUTE_RESIST_CAP;
+    return overcap > 0
+      ? `${current}% / max ${cappedMax}% (+${overcap}%)`
+      : `${current}% / max ${cappedMax}%`;
   }
 
   interface StatRow {
@@ -288,23 +305,27 @@
         rows: [
           {
             label: 'Fire',
-            render: (u) => resistLabel(u, 39, 40),
+            render: (u) => resistLabel(u, 39, 40, true),
             colorVar: 'var(--stat-fire, #e05d44)',
+            tooltip: 'Hard-capped at 90% — any excess +max-resist bonus is shown as (+X%)',
           },
           {
             label: 'Cold',
-            render: (u) => resistLabel(u, 43, 44),
+            render: (u) => resistLabel(u, 43, 44, true),
             colorVar: 'var(--stat-cold, #5b9bd5)',
+            tooltip: 'Hard-capped at 90% — any excess +max-resist bonus is shown as (+X%)',
           },
           {
             label: 'Lightning',
-            render: (u) => resistLabel(u, 41, 42),
+            render: (u) => resistLabel(u, 41, 42, true),
             colorVar: 'var(--stat-lightning, #d4b106)',
+            tooltip: 'Hard-capped at 90% — any excess +max-resist bonus is shown as (+X%)',
           },
           {
             label: 'Poison',
-            render: (u) => resistLabel(u, 45, 46),
+            render: (u) => resistLabel(u, 45, 46, true),
             colorVar: 'var(--stat-poison, #4caf50)',
+            tooltip: 'Hard-capped at 90% — any excess +max-resist bonus is shown as (+X%)',
           },
           {
             label: 'Magic',
