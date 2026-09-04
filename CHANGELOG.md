@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.26.20 — 2026-09-04
+
+### Bug Fixes
+
+- Fix(ci): rename release AppImage with capital ".AppImage" extension (b62d5f2)
+- Fix(updater): match the renamed AppImage asset case-insensitively (ccff37f)
+
+### Other
+
+- 1.26.20 (bc28665)
+
 ## v1.26.19 — 2026-09-04
 
 ### Bug Fixes
