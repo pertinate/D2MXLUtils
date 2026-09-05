@@ -174,6 +174,11 @@ pub struct AppSettings {
     #[serde(default = "default_auto_no_pickup")]
     pub auto_no_pickup: bool,
 
+    /// Whether to show the "Items hidden — press Alt" overlay indicator
+    /// when the in-game item highlight toggle is off.
+    #[serde(default = "default_show_items_hidden_indicator")]
+    pub show_items_hidden_indicator: bool,
+
     /// Per-slot drop sounds. Slot index = element position + 1.
     /// Final played gain = `sound_volume * slot.volume`.
     #[serde(default = "default_sounds")]
@@ -246,6 +251,10 @@ fn default_auto_no_pickup() -> bool {
     true
 }
 
+fn default_show_items_hidden_indicator() -> bool {
+    true
+}
+
 fn default_edit_overlay_hotkey() -> HotkeyConfig {
     HotkeyConfig {
         key_code: 0,
@@ -313,6 +322,7 @@ impl Default for AppSettings {
             live_match_highlight_duration_ms: default_live_match_highlight_duration_ms(),
             auto_always_show_items: default_auto_always_show_items(),
             auto_no_pickup: default_auto_no_pickup(),
+            show_items_hidden_indicator: default_show_items_hidden_indicator(),
             sounds: default_sounds(),
             goblin_alert_slot: None,
             dps_meter: DpsMeterSettings::default(),
