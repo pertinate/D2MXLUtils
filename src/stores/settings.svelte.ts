@@ -94,6 +94,9 @@ export interface AppSettings {
   liveMatchHighlightDurationMs: number;
   autoAlwaysShowItems: boolean;
   autoNoPickup: boolean;
+  /** Whether to show the "Items hidden — press Alt" overlay indicator
+   *  when the in-game item highlight toggle is off. */
+  showItemsHiddenIndicator: boolean;
   /** Per-slot drop sounds. Slot index = position + 1.
    *  Played gain = `soundVolume * slot.volume`. */
   sounds: SoundSlot[];
@@ -189,6 +192,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   liveMatchHighlightDurationMs: 900,
   autoAlwaysShowItems: true,
   autoNoPickup: true,
+  showItemsHiddenIndicator: true,
   sounds: defaultSounds(),
   goblinAlertSlot: null,
   dpsMeter: {

@@ -7,6 +7,7 @@
   let liveMatchHighlightDurationMs = $derived(settingsStore.settings.liveMatchHighlightDurationMs);
   let autoAlwaysShowItems = $derived(settingsStore.settings.autoAlwaysShowItems);
   let autoNoPickup = $derived(settingsStore.settings.autoNoPickup);
+  let showItemsHiddenIndicator = $derived(settingsStore.settings.showItemsHiddenIndicator);
   let dpsMeterEnabled = $derived(settingsStore.settings.dpsMeter?.enabled ?? false);
   let gameCreateNamePrefix = $derived(settingsStore.settings.gameCreateNamePrefix);
   let gameCreatePassword = $derived(settingsStore.settings.gameCreatePassword);
@@ -253,6 +254,10 @@
     settingsStore.setAutoNoPickup(enabled);
   }
 
+  function handleShowItemsHiddenIndicatorChange(enabled: boolean) {
+    settingsStore.set('showItemsHiddenIndicator', enabled);
+  }
+
   function handleGameCreateNamePrefixInput(e: Event) {
     settingsStore.setGameCreateNamePrefix((e.target as HTMLInputElement).value);
   }
@@ -463,6 +468,16 @@
         >
       </div>
       <Toggle checked={autoAlwaysShowItems} onchange={handleAutoAlwaysShowItemsChange} />
+    </div>
+
+    <div class="setting-row">
+      <div class="setting-info">
+        <span class="setting-label">Show "Items hidden" indicator</span>
+        <span class="setting-hint"
+          >Shows an on-screen reminder to press Alt when item highlight is off.</span
+        >
+      </div>
+      <Toggle checked={showItemsHiddenIndicator} onchange={handleShowItemsHiddenIndicatorChange} />
     </div>
 
     <div class="setting-row">
