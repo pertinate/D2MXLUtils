@@ -124,8 +124,15 @@ pub mod d2sigma {
     /// Native tooltip-builder hook. On function entry `[ESP+04]` is the
     /// current tooltip item `UnitAny*`. Used as the primary item-search hover
     /// identity source; see `docs/mxl-item-search-hover-re-session-report.md`.
-    pub const TOOLTIP_ITEM_HOOK: usize = 0xAE020;
-    pub const TOOLTIP_ITEM_HOOK_RESUME: usize = 0xAE025;
+    ///
+    /// Relocated for MXL 2.14: the function itself is byte-for-byte
+    /// unchanged (confirmed by diffing the pre-/post-2.14 `D2Sigma.dll`,
+    /// matching 119/128 bytes at the new offset, all mismatches being
+    /// embedded data-pointer immediates that shifted because `.rdata`
+    /// shrank in this build) — only its position in `.text` moved, from
+    /// `0xAE020` to `0xB4F80`.
+    pub const TOOLTIP_ITEM_HOOK: usize = 0xB4F80;
+    pub const TOOLTIP_ITEM_HOOK_RESUME: usize = 0xB4F85;
     pub const TOOLTIP_ITEM_HOOK_PATCH_SIZE: usize = 5;
     pub const TOOLTIP_ITEM_HOOK_PROLOGUE: [u8; TOOLTIP_ITEM_HOOK_PATCH_SIZE] =
         [0x55, 0x8D, 0x6C, 0x24, 0xD8];
