@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.26.24 — 2026-09-05
+
+### Features
+
+- Feat: add toggle for "Items hidden" overlay indicator (dea8b8a)
+
+### Other
+
+- 1.26.24 (884d85d)
+
 ## v1.26.23 — 2026-09-05
 
 ### Bug Fixes
