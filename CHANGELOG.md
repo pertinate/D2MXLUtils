@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.26.23 — 2026-09-05
+
+### Bug Fixes
+
+- Fix: relocate tooltip-item hook offset for MXL 2.14's D2Sigma.dll (4c63819)
+
+### Other
+
+- 1.26.23 (c6646d7)
+
 ## v1.26.22 — 2026-09-04
 
 ### Features
